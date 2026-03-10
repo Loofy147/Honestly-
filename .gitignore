@@ -1,0 +1,23 @@
+# Real-world data artifacts (already cleaned, but for safety)
+*.conllu
+*.csv
+*.zip
+en_ewt-ud-*
+clinvar_conflicting.csv
+clinvar-conflicting.zip
+clinvar_with_context.csv
+
+# Validation logs
+nlp_results.txt
+nlp_final_results.txt
+genomics_final_results.txt
+columns.txt
+sample_data.txt
+
+# Python artifacts
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+dist/
+build/
+*.egg-info/
