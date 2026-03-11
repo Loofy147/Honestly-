@@ -255,38 +255,38 @@ print("\n[Section 5] Suffix Smoothing & QEC Tests")
 
 def test_suffix_smoother_base_case():
     """Empty suffix returns uniform distribution."""
-    smoother = QuantumSuffixSmoother(SuffixConfig(n_qec_codes=4))
+    smoother = QuantumSuffixSmoother(SuffixConfig(n_classes=4))
     p = smoother.predict_probability((), 0)
     assert abs(p - 0.25) < 1e-10, f"Empty suffix must return 1/n_codes = 0.25, got {p}"
 
 def test_suffix_smoother_training():
-    smoother = QuantumSuffixSmoother(SuffixConfig(n_qec_codes=4))
+    smoother = QuantumSuffixSmoother(SuffixConfig(n_classes=4))
     sequences = [((1, 2, 3), 0)] * 100 + [((1, 2, 3), 1)] * 50
     result = smoother.train(sequences)
     assert result["samples_trained"] == 150
 
 def test_suffix_smoother_learned_bias():
     """After seeing many (1,2,3)→code_0 examples, should prefer code_0."""
-    smoother = QuantumSuffixSmoother(SuffixConfig(n_qec_codes=4))
+    smoother = QuantumSuffixSmoother(SuffixConfig(n_classes=4))
     smoother.train([((1, 2, 3), 0)] * 200)
     p0 = smoother.predict_probability((1, 2, 3), 0)
     p1 = smoother.predict_probability((1, 2, 3), 1)
     assert p0 > p1, "Smoother should learn bias toward observed code"
 
 def test_suffix_distribution_sums_to_one():
-    smoother = QuantumSuffixSmoother(SuffixConfig(n_qec_codes=8))
+    smoother = QuantumSuffixSmoother(SuffixConfig(n_classes=8))
     smoother.train([((i % 3, i % 5), i % 8) for i in range(100)])
     dist = smoother.predict_distribution((1, 2))
     total = sum(dist.values())
     assert abs(total - 1.0) < 1e-10, f"Distribution sums to {total}, not 1.0"
 
 def test_qec_initializes():
-    qec = QuantumErrorCorrector(SuffixConfig(n_qec_codes=16))
+    qec = QuantumErrorCorrector(SuffixConfig(n_classes=16))
     result = qec.initialize(n_training=100, seed=42)
     assert result["total_nodes"] > 0, "Should build suffix tree nodes"
 
 def test_qec_correction():
-    qec = QuantumErrorCorrector(SuffixConfig(n_qec_codes=16))
+    qec = QuantumErrorCorrector(SuffixConfig(n_classes=16))
     qec.initialize(n_training=300, seed=42)
     phi = np.array([0.6+0.1j, 0.8+0.0j, 0.0+0.1j, 0.0+0.0j])
     phi /= np.linalg.norm(phi)
@@ -295,7 +295,7 @@ def test_qec_correction():
     assert 0 <= result["confidence"] <= 1, "Confidence out of range"
 
 def test_qec_uncertainty_reduction():
-    qec = QuantumErrorCorrector(SuffixConfig(n_qec_codes=16))
+    qec = QuantumErrorCorrector(SuffixConfig(n_classes=16))
     qec.initialize(n_training=500, seed=42)
     np.random.seed(42)
     for _ in range(20):
@@ -306,7 +306,7 @@ def test_qec_uncertainty_reduction():
     assert s["mean_uncertainty_reduction_pct"] > 0, "Must achieve some uncertainty reduction"
 
 def test_viterbi_sequence():
-    qec = QuantumErrorCorrector(SuffixConfig(n_qec_codes=8))
+    qec = QuantumErrorCorrector(SuffixConfig(n_classes=8))
     qec.initialize(n_training=300, seed=42)
     phis = [np.random.randn(4) + 1j * np.random.randn(4) for _ in range(5)]
     phis = [p / np.linalg.norm(p) for p in phis]

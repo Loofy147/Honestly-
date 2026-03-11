@@ -136,7 +136,7 @@ class POSTagger:
         self.smoother = QuantumSuffixSmoother(SuffixConfig(
             max_suffix_length=max_suffix,
             smoothing_lambda=smoothing_lambda,
-            n_qec_codes=N_TAGS,
+            n_classes=N_TAGS,
         ))
         self._fitted = False
 
