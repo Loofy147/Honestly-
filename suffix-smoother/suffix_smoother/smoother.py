@@ -102,7 +102,7 @@ class SuffixConfig:
 
 class _SuffixNode:
     """Internal suffix tree node — stores counts and continuation diversity."""
-    __slots__ = ("counts", "total", "continuation_contexts")
+    __slots__ = ("counts", "total", "continuation_contexts", "observed_labels")
 
     def __init__(self):
         # counts[label] = total (possibly fractional with label smoothing) weight
@@ -111,16 +111,20 @@ class _SuffixNode:
         # For Kneser-Ney lower-order: set of (parent_suffix,) contexts that
         # contributed to this node. Tracks diversity of histories.
         self.continuation_contexts: set = set()
+        # Labels that were actually observed here (not just added by label smoothing)
+        self.observed_labels: set = set()
 
-    def observe(self, label: int, weight: float = 1.0, context: Optional[tuple] = None) -> None:
+    def observe(self, label: int, weight: float = 1.0, context: Optional[tuple] = None, is_actual: bool = True) -> None:
         self.counts[label] += weight
         self.total += weight
         if context is not None:
             self.continuation_contexts.add(context)
+        if is_actual:
+            self.observed_labels.add(label)
 
     def n_unique_labels(self) -> int:
         """Number of distinct labels observed at this node (T in Witten-Bell)."""
-        return sum(1 for v in self.counts.values() if v > 0)
+        return len(self.observed_labels)
 
     def continuation_count(self, label: int) -> int:
         """How many distinct suffix contexts this label appeared in (for KN lower-order)."""
@@ -131,34 +135,36 @@ class _SuffixNode:
     def mle(self, label: int) -> float:
         return self.counts.get(label, 0.0) / self.total if self.total > 0 else 0.0
 
-    def mle_all(self, n_classes: int) -> list:
+    def mle_all(self, n_classes: int) -> np.ndarray:
         if self.total == 0:
-            return [0.0] * n_classes
-        return [self.counts.get(i, 0.0) / self.total for i in range(n_classes)]
+            return np.zeros(n_classes)
+        # Convert counts dict to array efficiently
+        arr = np.zeros(n_classes)
+        for lbl, count in self.counts.items():
+            arr[lbl] = count
+        return arr / self.total
 
-    def wb_distribution(self, n_classes: int, lower_p: list) -> list:
-        """
-        Correct Witten-Bell distribution (Bell, Cleary & Witten 1990).
-        P_WB(y|node) = C(y)/(T+N) + [T/(T+N)] * P_lower(y)
-        MLE mass = N/(T+N),  Backoff mass = T/(T+N).
-        As N grows (more evidence) backoff shrinks → more trust in MLE.
-        """
+    def wb_distribution(self, n_classes: int, lower_p: np.ndarray) -> np.ndarray:
         T = self.n_unique_labels()
         N = self.total
         denom = T + N
         if denom == 0:
-            return lower_p[:]
-        backoff_w = T / denom
-        return [
-            self.counts.get(i, 0.0) / denom + backoff_w * lower_p[i]
-            for i in range(n_classes)
-        ]
+            return lower_p.copy()
 
-    def kn_discounted_all(self, n_classes: int, D: float) -> list:
-        """Absolute-discounted higher-order term: max(C(y)-D, 0) / N."""
+        arr = np.zeros(n_classes)
+        for lbl, count in self.counts.items():
+            arr[lbl] = count
+
+        backoff_w = T / denom
+        return arr / denom + backoff_w * lower_p
+
+    def kn_discounted_all(self, n_classes: int, D: float) -> np.ndarray:
         if self.total == 0:
-            return [0.0] * n_classes
-        return [max(self.counts.get(i, 0.0) - D, 0.0) / self.total for i in range(n_classes)]
+            return np.zeros(n_classes)
+        arr = np.zeros(n_classes)
+        for lbl, count in self.counts.items():
+            arr[lbl] = max(count - D, 0.0)
+        return arr / self.total
 
     def kn_backoff_weight(self, D: float) -> float:
         """KN back-off weight to lower-order: D * T / N."""
@@ -210,10 +216,8 @@ class SuffixSmoother:
         ]
 
         # Kneser-Ney state — estimated from data during training
-        self._kn_D: Optional[float] = self.cfg.kn_discount
-        self._kn_n1: int = 0  # singletons count for D estimation
-        self._kn_n2: int = 0  # doubletons count for D estimation
-
+        self._kn_D_param: Optional[float] = self.cfg.kn_discount
+        self._estimated_D: Optional[float] = None
         # Continuation counts for KN: label → set of suffix contexts it appeared in
         # Tracked at the root level for lower-order distribution
         self._label_continuation_contexts: dict[int, set] = defaultdict(set)
@@ -242,25 +246,36 @@ class SuffixSmoother:
                 pairs.append((i, other_w))
         return pairs
 
-    def _update_kn_counts(self, label: int, count: float) -> None:
-        """Track singleton/doubleton counts for automatic D estimation."""
-        if self._kn_D is not None:
-            return  # fixed D, no need to estimate
-        # Approximate: count transitions in n1/n2 based on rounded counts
-        rounded = round(count)
-        if rounded == 1:
-            self._kn_n1 += 1
-        elif rounded == 2:
-            self._kn_n2 += 1
-
     def _get_kn_D(self) -> float:
         """Return estimated or configured KN discount factor D."""
-        if self._kn_D is not None:
-            return self._kn_D
-        n1, n2 = self._kn_n1, self._kn_n2
+        if self._kn_D_param is not None:
+            return self._kn_D_param
+        if self._estimated_D is not None:
+            return self._estimated_D
+
+        n1 = 0
+        n2 = 0
+        for node in self._nodes.values():
+            for lbl in node.observed_labels:
+                c = round(node.counts[lbl])
+                if c == 1:
+                    n1 += 1
+                elif c == 2:
+                    n2 += 1
+
+        # Also check root
+        for lbl in self._root.observed_labels:
+            c = round(self._root.counts[lbl])
+            if c == 1:
+                n1 += 1
+            elif c == 2:
+                n2 += 1
+
         if n1 == 0 or (n1 + 2 * n2) == 0:
-            return 0.75  # Kneser & Ney's default
-        return n1 / (n1 + 2 * n2)
+            self._estimated_D = 0.75
+        else:
+            self._estimated_D = n1 / (n1 + 2 * n2)
+        return self._estimated_D
 
     # ── Training ──────────────────────────────────────────────────────────
 
@@ -280,19 +295,22 @@ class SuffixSmoother:
             suffix = seq[max(0, n - length):]
             node = self._nodes.setdefault(suffix, _SuffixNode())
             parent_suffix = seq[max(0, n - length + 1):]  # one shorter
+
+            # The first element in smoothed is the actual label
+            main_lbl, _ = smoothed[0]
             for lbl, w in smoothed:
-                node.observe(lbl, w, context=parent_suffix)
-            # Track KN counts on single-label case only
-            if len(smoothed) == 1:
-                self._update_kn_counts(label, 1.0)
+                node.observe(lbl, w, context=parent_suffix, is_actual=(lbl == main_lbl))
+
             # Track continuation diversity at label level
             self._label_continuation_contexts[label].add(suffix)
 
         # Update root
+        main_lbl, _ = smoothed[0]
         for lbl, w in smoothed:
-            self._root.observe(lbl, w)
+            self._root.observe(lbl, w, is_actual=(lbl == main_lbl))
 
         self.training_samples += 1
+        self._estimated_D = None  # Invalidate D cache
 
     def train(self, data: list) -> dict:
         """
@@ -332,11 +350,9 @@ class SuffixSmoother:
 
     # ── Inference — all three smoothing methods ────────────────────────────
 
-    def _infer_jm(self, seq: tuple) -> list:
-        """Jelinek-Mercer: fixed λ interpolation."""
+    def _infer_jm(self, seq: tuple) -> np.ndarray:
         n = len(seq)
-        uniform = 1.0 / self.n_classes
-        p = [uniform] * self.n_classes
+        p = np.full(self.n_classes, 1.0 / self.n_classes)
 
         for length in range(1, min(n + 1, self.cfg.max_suffix_length + 1)):
             suffix = seq[max(0, n - length):]
@@ -344,21 +360,13 @@ class SuffixSmoother:
             if node is not None and node.total >= self.cfg.min_count:
                 lam = self._jm_lambdas[length - 1]
                 mle = node.mle_all(self.n_classes)
-                p = [lam * m + (1.0 - lam) * pk for m, pk in zip(mle, p)]
+                p = lam * mle + (1.0 - lam) * p
 
         return p
 
-    def _infer_wb(self, seq: tuple) -> list:
-        """
-        Witten-Bell: correct formula per Bell, Cleary & Witten (1990).
-        P_WB(y|ctx) = C(y)/(T+N) + [T/(T+N)] * P_lower(y)
-        T = distinct label types, N = total count.
-        More evidence (high N) → more MLE weight. More diverse outcomes
-        (high T) → more backoff. Adapts automatically with no tuning.
-        """
+    def _infer_wb(self, seq: tuple) -> np.ndarray:
         n = len(seq)
-        uniform = 1.0 / self.n_classes
-        p = [uniform] * self.n_classes
+        p = np.full(self.n_classes, 1.0 / self.n_classes)
 
         for length in range(1, min(n + 1, self.cfg.max_suffix_length + 1)):
             suffix = seq[max(0, n - length):]
@@ -368,16 +376,7 @@ class SuffixSmoother:
 
         return p
 
-    def _infer_kn(self, seq: tuple) -> list:
-        """
-        Kneser-Ney: absolute discounting at higher-order, continuation
-        probability at lower-order nodes.
-
-        Higher-order: P_KN(y|suffix_k) = max(count(y,suffix) - D, 0) / count(suffix)
-                      + λ(suffix) · P_KN(y|suffix_{k-1})
-        Lower-order base: P_KN(y|∅) ∝ |{contexts c : (c, y) seen}| / total_bigrams
-                          i.e. how many distinct contexts y appeared in.
-        """
+    def _infer_kn(self, seq: tuple) -> np.ndarray:
         n = len(seq)
         D = self._get_kn_D()
 
@@ -386,12 +385,12 @@ class SuffixSmoother:
             len(ctxs) for ctxs in self._label_continuation_contexts.values()
         )
         if total_continuation > 0:
-            p = [
-                len(self._label_continuation_contexts.get(i, set())) / total_continuation
-                for i in range(self.n_classes)
-            ]
+            p = np.zeros(self.n_classes)
+            for i in range(self.n_classes):
+                p[i] = len(self._label_continuation_contexts.get(i, set()))
+            p /= total_continuation
         else:
-            p = [1.0 / self.n_classes] * self.n_classes
+            p = np.full(self.n_classes, 1.0 / self.n_classes)
 
         # Layer by layer: shortest suffix → longest
         for length in range(1, min(n + 1, self.cfg.max_suffix_length + 1)):
@@ -400,11 +399,11 @@ class SuffixSmoother:
             if node is not None and node.total >= self.cfg.min_count:
                 disc = node.kn_discounted_all(self.n_classes, D)
                 bw = node.kn_backoff_weight(D)
-                p = [d + bw * pk for d, pk in zip(disc, p)]
+                p = disc + bw * p
 
         return p
 
-    def _infer(self, seq: tuple) -> list:
+    def _infer(self, seq: tuple) -> np.ndarray:
         """Dispatch to the configured smoothing method."""
         method = self.cfg.smoothing_method
         if method == "jelinek-mercer":
@@ -434,10 +433,10 @@ class SuffixSmoother:
         dict[int, float] — maps label_id → probability. Always sums to 1.0.
         """
         p = self._infer(seq)
-        total = sum(p)
+        total = np.sum(p)
         if total > 1e-12:
-            p = [v / total for v in p]
-        return {i: p[i] for i in range(self.n_classes)}
+            p = p / total
+        return {i: float(p[i]) for i in range(self.n_classes)}
 
     def predict(self, seq: tuple) -> tuple:
         """
