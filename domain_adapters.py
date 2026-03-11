@@ -52,7 +52,7 @@ class GenomicsAdapter:
         self.mutation_predictor = QuantumSuffixSmoother(
             SuffixConfig(max_suffix_length=7, n_qec_codes=8)
         )
-        self.qec = QuantumErrorCorrector(SuffixConfig(n_qec_codes=8))
+        self.qec = QuantumErrorCorrector(SuffixConfig(n_classes=8))
         self.n_variants = n_variants
         self._built = False
 
