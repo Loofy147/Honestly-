@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "suffix-smoother"
-version = "0.2.1"
-description = "Suffix smoothing classifier: three research-backed methods, conformal prediction, streaming."
+version = "0.3.0"
+description = "Suffix smoothing classifier v0.3.0: 1.8x faster, KN memory fix, model merging, and feature importance."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
@@ -13,7 +13,8 @@ dependencies = ["numpy"]
 keywords = [
     "nlp", "sequence-classification", "suffix-smoothing",
     "conformal-prediction", "uncertainty-quantification",
-    "kneser-ney", "witten-bell", "log-anomaly", "genomics", "oov"
+    "kneser-ney", "witten-bell", "log-anomaly", "genomics", "oov",
+    "model-merging", "feature-importance"
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

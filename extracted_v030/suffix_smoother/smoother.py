@@ -616,7 +616,7 @@ class SuffixSmoother:
 
         # Merge root
         for lbl, cnt in b._root.counts.items():
-            a._root.counts[lbl] = a._root.counts.get(lbl, 0.0) + cnt
+            a._root.counts[lbl] += cnt
         a._root.total += b._root.total
         merged._root = a._root
 

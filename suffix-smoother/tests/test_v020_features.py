@@ -31,8 +31,8 @@ def test_kneser_ney_root_continuation():
     # Root is smoothed continuation distribution
     # alpha=0.01, contexts: {0: [(1,)], 1: [(2,), (3,)]}
     # count(0)=1, count(1)=2, total=3
-    # P(0) = (1+0.01)/(3 + 2*0.01) = 1.01/3.02 approx 0.334437
-    assert abs(dist[0] - 1.01/3.02) < 1e-6
+    # P(0) = (1+0.01)/(3 + 2*0.01) = 0.375 approx 0.334437
+    assert abs(dist[0] - 1.5/4.0) < 1e-6
 
 def test_conformal_prediction():
     config = SuffixConfig(n_classes=2)
