@@ -180,6 +180,8 @@ class POSTagger:
                     corpus.append((ctx, tag_id))
 
         self.smoother.train(corpus)
+        pruned = self.smoother.prune(min_kl=0.05)
+        print(f"        [v0.3.0] Memory optimization: removed {pruned['nodes_removed']} low-value nodes.")
         self._fitted = True
         return self
 
@@ -189,54 +191,60 @@ class POSTagger:
         Priority: closed-class lookup → digit check → suffix smoothing.
         """
         lower = word.lower()
-
-        # 1. Closed-class high-confidence lookup
         if lower in CLOSED_CLASS:
             tag, conf = CLOSED_CLASS[lower]
             return tag, conf, 0.0
-
-        # 2. All-digits → NUM
         if word.replace(",", "").replace(".", "").replace("-", "").isdigit():
             return "NUM", 0.98, 0.1
-
-        # 3. Punctuation
         if all(not c.isalnum() for c in word):
             return "PUNCT", 0.99, 0.0
 
-        # 4. Suffix smoothing with progressive backoff
-        best_tag, best_conf = 0, 0.0
-        best_unc = self.smoother.max_uncertainty()
-
-        for sfx_len in range(min(6, len(word)), 0, -1):
-            ctx = self._encode(word, maxlen=sfx_len)
-            dist = self.smoother.predict_distribution(ctx)
-            tag_id = max(dist, key=dist.get)
-            conf = dist[tag_id]
-            unc = self.smoother.uncertainty(ctx)
-            if conf > best_conf:
-                best_tag, best_conf, best_unc = tag_id, conf, unc
-            if conf > 1.5 / N_TAGS:  # Meaningfully above uniform — stop backing off
-                break
-
-        return UPOS[best_tag], round(best_conf, 4), round(best_unc, 3)
+        # 4. Suffix smoothing (v0.3.0)
+        ctx = self._encode(word, maxlen=6)
+        dist = self.smoother.predict_distribution(ctx)
+        tag_id = int(max(dist, key=dist.get))
+        conf = dist[tag_id]
+        unc = self.smoother.uncertainty(ctx)
+        return UPOS[tag_id], round(conf, 4), round(unc, 3)
 
     def tag_tokens(self, tokens: list[str]) -> list[dict]:
         """
-        Tag a list of tokens.
+        Tag a list of tokens. Optimized with v0.3.0 batch prediction.
         Returns list of {word, tag, confidence, uncertainty_bits, oov}.
         """
         if not self._fitted:
             raise RuntimeError("Call fit() first.")
-        results = []
-        for word in tokens:
-            tag, conf, unc = self._tag_word(word)
-            results.append({
-                "word": word,
-                "tag": tag,
-                "confidence": conf,
-                "uncertainty_bits": unc,
-                "oov": word.lower() not in CLOSED_CLASS,
-            })
+
+        results = [None] * len(tokens)
+        open_indices = []
+        open_contexts = []
+
+        for i, word in enumerate(tokens):
+            lower = word.lower()
+            if lower in CLOSED_CLASS:
+                tag, conf = CLOSED_CLASS[lower]
+                results[i] = {"word": word, "tag": tag, "confidence": conf, "uncertainty_bits": 0.0, "oov": False}
+            elif word.replace(",", "").replace(".", "").replace("-", "").isdigit():
+                results[i] = {"word": word, "tag": "NUM", "confidence": 0.98, "uncertainty_bits": 0.1, "oov": True}
+            elif all(not c.isalnum() for c in word):
+                results[i] = {"word": word, "tag": "PUNCT", "confidence": 0.99, "uncertainty_bits": 0.0, "oov": True}
+            else:
+                open_indices.append(i)
+                open_contexts.append(self._encode(word, maxlen=6))
+
+        if open_indices:
+            batch_dists = self.smoother.predict_distributions_batch(open_contexts)
+            batch_uncs = self.smoother.uncertainty_batch(open_contexts)
+            for idx, dist_arr, unc in zip(open_indices, batch_dists, batch_uncs):
+                tag_id = int(np.argmax(dist_arr))
+                conf = float(dist_arr[tag_id])
+                results[idx] = {
+                    "word": tokens[idx],
+                    "tag": UPOS[tag_id],
+                    "confidence": round(conf, 4),
+                    "uncertainty_bits": round(unc, 3),
+                    "oov": True
+                }
         return results
 
     def tag(self, text: str) -> list[tuple[str, str]]:

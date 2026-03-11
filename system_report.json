@@ -1,0 +1,208 @@
+{
+  "study": {
+    "ribbon_filter": {
+      "keys_inserted": 10000,
+      "array_size": 10527,
+      "fingerprint_bits": 10,
+      "memory_kb": 12.8505859375,
+      "bloom_equiv_kb": 17.55078125,
+      "memory_reduction_pct": 26.780547518361896
+    },
+    "qec_initialization": {
+      "samples_trained": 500,
+      "total_nodes": 319,
+      "total_training_samples": 500
+    },
+    "memory_report": {
+      "pairs_indexed": 10000,
+      "ribbon_memory_kb": 12.8505859375,
+      "bloom_equiv_kb": 17.55078125,
+      "memory_reduction_pct": 26.780547518361896,
+      "fp_rate": 0.001
+    }
+  },
+  "understand": {
+    "battery_summary": {
+      "algebra_type": "galilei",
+      "E_battery": 5.0,
+      "capacity_pct": 50.0,
+      "g_norms": 0.666712732206846,
+      "n_conservation_violations": 0,
+      "mean_violation": 0.0
+    },
+    "battery_history_last5": [
+      {
+        "t": 0.45,
+        "g": [
+          0.37019984439126424,
+          0.399612451588817,
+          0.3108276067642964,
+          0.10139086952521617
+        ],
+        "E_battery": 5.0,
+        "coupling_strength": 0.17948249149011677,
+        "U_norm": 1.9999999999999984,
+        "conservation_satisfied": true
+      },
+      {
+        "t": 0.46,
+        "g": [
+          0.3778155567397748,
+          0.40605156023251776,
+          0.3116841118086769,
+          0.0977420857419726
+        ],
+        "E_battery": 5.0,
+        "coupling_strength": 0.18180238310019586,
+        "U_norm": 1.9999999999999984,
+        "conservation_satisfied": true
+      },
+      {
+        "t": 0.47000000000000003,
+        "g": [
+          0.38533690440100354,
+          0.41222227190183286,
+          0.31223622214016367,
+          0.09385675075599341
+        ],
+        "E_battery": 5.0,
+        "coupling_strength": 0.18400308068299978,
+        "U_norm": 1.9999999999999984,
+        "conservation_satisfied": true
+      },
+      {
+        "t": 0.48,
+        "g": [
+          0.3927582625160064,
+          0.41811544280637913,
+          0.31248528060422315,
+          0.08973869892382758
+        ],
+        "E_battery": 5.0,
+        "coupling_strength": 0.18608241845398873,
+        "U_norm": 1.9999999999999984,
+        "conservation_satisfied": true
+      },
+      {
+        "t": 0.49,
+        "g": [
+          0.4000739378109273,
+          0.4237222137890101,
+          0.31243303991141,
+          0.08539199426545502
+        ],
+        "E_battery": 5.0,
+        "coupling_strength": 0.18803835229519467,
+        "U_norm": 1.9999999999999984,
+        "conservation_satisfied": true
+      }
+    ],
+    "ribbon_recall": 2,
+    "ribbon_fp_count": 0
+  },
+  "integrate": {
+    "ekrls_summary": {
+      "total_steps": 100,
+      "collapse_events": 1,
+      "mean_entropy": 1.1084140698708758,
+      "mean_coherence": 0.5769366385784669,
+      "mean_pred_error": 0.11851939927227194,
+      "rmse": 0.17794365827761924,
+      "battery_final": 0.9498773089790759,
+      "dictionary_size": 50
+    },
+    "meta_alerts": 20,
+    "nodes_pruned": 0
+  },
+  "test": {
+    "tests_passed": 5,
+    "tests_total": 5,
+    "all_pass": true,
+    "details": {
+      "T1_EKRLS_accuracy": {
+        "pass": true,
+        "rmse": 0.17794365827761924,
+        "threshold": 0.5
+      },
+      "T2_Ribbon_FP": {
+        "pass": true,
+        "actual_fp_rate": 0.001,
+        "target_fp_rate": 0.001
+      },
+      "T3_Battery_conservation": {
+        "pass": true,
+        "violations": 0,
+        "mean_violation": 0.0
+      },
+      "T4_QEC_uncertainty": {
+        "pass": true,
+        "uncertainty_reduction_pct": 78.32115259450536,
+        "success_rate": 1.0
+      },
+      "T5_Metacognitive_active": {
+        "pass": true,
+        "steps_monitored": 100,
+        "collapse_alerts": 1
+      }
+    }
+  },
+  "validate": {
+    "q_validation": {
+      "q_validation": {
+        "model": "QuantumSpacetimeSystem_v1",
+        "q_score": 0.8366285247753088,
+        "q_std": 0.23196534577415565,
+        "q_confidence_interval": [
+          0.38197644705796374,
+          1.291280602492654
+        ],
+        "accepted": false,
+        "threshold": 0.85,
+        "dimension_scores": {
+          "G": 0.7330845125835712,
+          "C": 0.7061619831470802,
+          "S": 0.95,
+          "A": 0.865,
+          "Co": 0.9324999999999998,
+          "Ge": 1.0
+        },
+        "bayesian_weights": {
+          "G": 0.25,
+          "C": 0.2,
+          "S": 0.15,
+          "A": 0.15,
+          "Co": 0.15,
+          "Ge": 0.1
+        },
+        "bottleneck_dimension": "C",
+        "recommendation": "REJECT \u2014 improve C"
+      },
+      "total_monitoring_steps": 100,
+      "total_collapse_alerts": 1,
+      "total_bias_events": 16,
+      "total_interventions": 84,
+      "system_stability": 0.99,
+      "metacognitive_overhead_pct": 84.0
+    },
+    "calibration_report": {
+      "n_validations": 1,
+      "mean_q_score": 0.8366285247753088,
+      "acceptance_rate": 0.0,
+      "q_score_std": 0.0,
+      "bayesian_weight_evolution": {
+        "G": 0.25,
+        "C": 0.2,
+        "S": 0.15,
+        "A": 0.15,
+        "Co": 0.15,
+        "Ge": 0.1
+      },
+      "overconfidence_events": 0
+    }
+  },
+  "system_config": {
+    "n_steps": 100,
+    "n_pairs": 10000,
+    "state_dim": 4
+  }
+}

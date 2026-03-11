@@ -97,3 +97,30 @@ def test_kn_memory_freed():
     # But counts should be preserved in continuation_counts
     node_2 = smoother._nodes[(2,)]
     assert node_2.continuation_counts[0] == 1 # label 0 seen in contexts (1,) and (3,)
+
+def test_prune():
+    config = SuffixConfig(n_classes=2)
+    smoother = SuffixSmoother(config)
+    # (1,1) is very discriminative (KL high)
+    # (2,2) is uniform (KL=0)
+    smoother.train([((1, 1), 0)] * 10 + [((2, 2), 0), ((2, 2), 1)])
+
+    initial_nodes = smoother.n_nodes
+    stats = smoother.prune(min_kl=0.1)
+
+    assert stats["nodes_removed"] > 0
+    assert (2, 2) not in smoother._nodes
+    assert (1, 1) in smoother._nodes # Should stay as it's discriminative
+
+def test_conformal_margin():
+    config = SuffixConfig(n_classes=2)
+    smoother = SuffixSmoother(config)
+    smoother.train([((1,), 0)] * 8 + [((1,), 1)] * 2)
+
+    cal_data = [((1,), 0), ((1,), 1)]
+    # This is a small sample, but should work
+    smoother.calibrate(cal_data, score_type="margin")
+    assert smoother._conformal_score_type == "margin"
+
+    pset = smoother.predict_set((1,), coverage=0.5)
+    assert "labels" in pset

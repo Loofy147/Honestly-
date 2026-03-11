@@ -12,8 +12,9 @@ import json
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from cross_domain.finance import FinancialQuantumAnalyzer, generate_market_data
-from cross_domain.domain_adapters import (
+from suffix_smoother import SuffixSmoother, SuffixConfig
+from finance import FinancialQuantumAnalyzer, generate_market_data
+from domain_adapters import (
     GenomicsAdapter, ClimateAdapter, DrugDiscoveryAdapter, NLPAdapter
 )
 
@@ -102,6 +103,13 @@ def run_all_domains(verbose: bool = True) -> dict:
               f"(confidence={novel['confidence']:.1%})")
         print(f"    Method: {novel['method']}")
 
+    # Top variants (v0.3.0)
+    top_v = genomics.get_top_variants(n=5)
+    if verbose:
+        print("\n  Top 5 Predictive Genomic Motifs (v0.3.0):")
+        for f in top_v:
+             print(f"    Motif: {f['motif']:<8} | KL: {f['kl_divergence']:.3f} | Top Class: {genomics.VARIANT_CLASSES[f['top_label']]}")
+
     all_results["genomics"] = {
         "build": genomics_build,
         "test_queries": variant_reports,
@@ -175,6 +183,13 @@ def run_all_domains(verbose: bool = True) -> dict:
             print(f"    Lipinski OK: {pred['lipinski_favorable']}")
             print(f"    Top classes: {pred['top_4_classes'][:2]}")
 
+    # Important scaffolds (v0.3.0)
+    top_s = drug.get_important_scaffolds(n=5)
+    if verbose:
+        print("\n  Top 5 Important Scaffolds (v0.3.0):")
+        for f in top_s:
+            print(f"    Scaffold Suffix: {f['suffix']} | KL: {f['kl_divergence']:.3f} | Top Activity: {drug.ACTIVITY_CLASSES[f['top_label']]}")
+
     # Validate a docking model using Q-Score
     docking_scores = {
         'G': 0.88,   # Grounded in MM-GBSA
@@ -238,6 +253,57 @@ def run_all_domains(verbose: bool = True) -> dict:
         "word_tagging": word_reports,
         "sentence_tagging": tagged_sentence,
     }
+
+    # ─────────────────────────────────────────────────
+    # DOMAIN 6: SMOOTHING BENCHMARK (v0.3.0)
+    # ─────────────────────────────────────────────────
+    if verbose:
+        print("\n" + "═"*60)
+        print("  DOMAIN 6: SMOOTHING METHOD COMPARISON")
+        print("  Witten-Bell vs Kneser-Ney vs Jelinek-Mercer")
+        print("═"*60)
+
+    # Use NLP dataset for benchmark
+    test_data_raw = nlp.generate_synthetic_corpus(n=200, seed=99)
+
+    # Training data for KN and JM models
+    nlp_train_data = []
+    for word, tag in corpus:
+        for length in range(1, min(len(word)+1, 9)):
+            suffix = word[-length:]
+            ctx = tuple(ord(c) % 26 for c in suffix[-5:])
+            nlp_train_data.append((ctx, int(tag) % 16))
+
+    # Create models with different methods
+    m_wb = nlp.tagger.smoother
+
+    cfg_kn = SuffixConfig(max_suffix_length=8, n_classes=16, smoothing_method="kneser-ney")
+    m_kn = SuffixSmoother(cfg_kn)
+    m_kn.train(nlp_train_data)
+
+    cfg_jm = SuffixConfig(max_suffix_length=8, n_classes=16, smoothing_method="jelinek-mercer")
+    m_jm = SuffixSmoother(cfg_jm)
+    m_jm.train(nlp_train_data)
+
+    # Encode test data
+    encoded_test = []
+    for word, tag in test_data_raw:
+        ctx = tuple(ord(c) % 26 for c in word[-5:])
+        encoded_test.append((ctx, int(tag) % 16))
+
+    comp_results = SuffixSmoother.compare([
+        ("Witten-Bell", m_wb),
+        ("Kneser-Ney", m_kn),
+        ("Jelinek-Mercer", m_jm)
+    ], encoded_test)
+
+    if verbose:
+        print(f"  {'Method':<16} | {'Accuracy':<10} | {'ECE':<10} | {'Conf':<10}")
+        print("  " + "-"*50)
+        for r in comp_results:
+            print(f"  {r['name']:<16} | {r['accuracy']:<10.1%} | {r['ece']:<10.4f} | {r['mean_confidence']:<10.4f}")
+
+    all_results["benchmark"] = comp_results
 
     # ─────────────────────────────────────────────────
     # UNIFIED SUMMARY

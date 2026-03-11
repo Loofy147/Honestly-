@@ -73,6 +73,13 @@ def run_nlp(quick: bool = False) -> dict:
     ]
 
     print(f"\n  Fitted in {fit_ms:.1f}ms  |  Suffix nodes: {len(tagger.smoother.nodes)}")
+
+    print("\n  Top 5 NLP Suffixes (v0.3.0):")
+    from nlp_tagger import UPOS
+    importance = tagger.smoother.feature_importance(top_n=5)
+    for f in importance:
+        sfx = "".join(chr(c + 96) if 1 <= c <= 26 else '?' for c in f["suffix"])
+        print(f"    '{sfx:<6}' -> {UPOS[f['top_label']]:<6} (KL: {f['kl_divergence']:.3f})")
     print(f"\n  {'Word':<32} {'Pred':<7} {'True':<7} {'Conf':>6}")
     print(f"  {'-'*56}")
     for word, true_tag in TEST_WORDS:
@@ -161,10 +168,9 @@ def run_genomics(quick: bool = False) -> dict:
             true_classes[i] = rng2.choice([3, 4, 7], p=[0.4, 0.4, 0.2])
 
     t0 = time.time()
-    preds = []
-    for ctx in test_ctxs:
-        d = db.smoother.predict_distribution(_encode_kmer(ctx))
-        preds.append(max(d, key=d.get))
+    # v0.3.0 optimized batch inference
+    batch_results = db.smoother.predict_batch([_encode_kmer(ctx) for ctx in test_ctxs])
+    preds = [r[0] for r in batch_results]
     infer_ms = (time.time() - t0) * 1000
 
     n_patho_true  = sum(1 for t in true_classes if t in ACTIONABLE_CLASSES)

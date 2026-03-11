@@ -263,6 +263,7 @@ class SuffixSmoother:
         # Conformal state
         self._conformal_scores: Optional[list] = None
         self._conformal_n: int = 0
+        self._conformal_score_type: str = "lac"
 
     # ── Training ──────────────────────────────────────────────────────────
 
@@ -493,6 +494,31 @@ class SuffixSmoother:
                 results.append((0, uniform_conf))
         return results
 
+
+    def predict_distributions_batch(self, sequences: list) -> list[np.ndarray]:
+        """
+        Predict full probability distributions for a batch of sequences.
+        Returns a list of numpy arrays.
+        """
+        results = []
+        for seq in sequences:
+            p = self._infer(seq)
+            total = p.sum()
+            if total > 1e-12:
+                results.append(p / total)
+            else:
+                results.append(self._uniform_p.copy())
+        return results
+
+
+    def uncertainty_batch(self, sequences: list) -> list[float]:
+        """Shannon entropy in bits for a batch of sequences."""
+        dists = self.predict_distributions_batch(sequences)
+        results = []
+        for p in dists:
+            p_nz = p[p > 1e-12]
+            results.append(float(-np.sum(p_nz * np.log2(p_nz))))
+        return results
     def predict_grouped(self, seq: tuple, groups: dict) -> tuple:
         """
         Predict over semantic class groups. Returns (best_group, confidence, scores).
@@ -511,7 +537,7 @@ class SuffixSmoother:
 
     # ── Conformal Prediction ───────────────────────────────────────────────
 
-    def calibrate(self, calibration_data: list) -> dict:
+    def calibrate(self, calibration_data: list, score_type: str = "lac") -> dict:
         """
         Calibrate conformal predictor (split CP).
 
@@ -519,6 +545,8 @@ class SuffixSmoother:
         ----------
         calibration_data : list of (seq, true_label)
             Must be separate from training data.
+        score_type : str
+            "lac" (1 - P(y|x)) or "margin" (P(max) - P(y|x)).
 
         Returns
         -------
@@ -529,7 +557,15 @@ class SuffixSmoother:
         scores = []
         for seq, true_label in calibration_data:
             dist = self.predict_distribution(seq)
-            scores.append(1.0 - dist.get(int(true_label), 0.0))
+            p_true = dist.get(int(true_label), 0.0)
+            if score_type == "lac":
+                score = 1.0 - p_true
+            elif score_type == "margin":
+                score = max(dist.values()) - p_true
+            else:
+                raise ValueError(f"Unknown score_type '{score_type}'")
+            scores.append(score)
+        self._conformal_score_type = score_type
         self._conformal_scores = sorted(scores)
         self._conformal_n = len(scores)
         Q90 = self._conformal_quantile(0.10)
@@ -566,7 +602,10 @@ class SuffixSmoother:
         """
         Q = self._conformal_quantile(1.0 - coverage)
         dist = self.predict_distribution(seq)
-        threshold_prob = 1.0 - Q
+        if self._conformal_score_type == "lac":
+            threshold_prob = 1.0 - Q
+        else: # margin
+            threshold_prob = max(dist.values()) - Q
         included = sorted(lbl for lbl, prob in dist.items() if prob >= threshold_prob)
         if not included:
             included = [max(dist, key=dist.get)]
@@ -615,10 +654,12 @@ class SuffixSmoother:
         merged = cls(a.cfg)
 
         # Merge root
-        for lbl, cnt in b._root.counts.items():
-            a._root.counts[lbl] = a._root.counts.get(lbl, 0.0) + cnt
-        a._root.total += b._root.total
-        merged._root = a._root
+        merged._root = _SuffixNode()
+        all_root_labels = set(a._root.counts.keys()) | set(b._root.counts.keys())
+        for lbl in all_root_labels:
+            merged._root.counts[lbl] = a._root.counts.get(lbl, 0.0) + b._root.counts.get(lbl, 0.0)
+        merged._root.total = a._root.total + b._root.total
+        merged._root._T = len(merged._root.counts)
 
         # Merge nodes
         all_keys = set(a._nodes.keys()) | set(b._nodes.keys())
@@ -629,6 +670,7 @@ class SuffixSmoother:
                 for lbl in set(na.counts.keys()) | set(nb.counts.keys()):
                     merged_node.counts[lbl] = na.counts.get(lbl, 0.0) + nb.counts.get(lbl, 0.0)
                 merged_node.total = na.total + nb.total
+                merged_node._T = len(merged_node.counts)
                 # Merge continuation counts additively
                 for lbl in set(na.continuation_counts.keys()) | set(nb.continuation_counts.keys()):
                     merged_node.continuation_counts[lbl] = (
@@ -802,6 +844,22 @@ class SuffixSmoother:
                 continue
             ece += (n_bin / n) * abs(labels_arr[mask].mean() - probs_arr[mask].mean())
         return float(ece)
+
+
+    def prune(self, min_kl: float = 0.1) -> dict:
+        """
+        Remove low-value nodes from the suffix tree to save memory.
+        A node is low-value if its label distribution is close to uniform.
+        """
+        uniform = 1.0 / self.n_classes
+        to_remove = []
+        for suffix, node in self._nodes.items():
+            kl = _kl_divergence(node.counts, uniform, self.n_classes)
+            if kl < min_kl:
+                to_remove.append(suffix)
+        for sfx in to_remove:
+            del self._nodes[sfx]
+        return {"nodes_removed": len(to_remove), "nodes_remaining": len(self._nodes)}
 
     # ── Persistence ────────────────────────────────────────────────────────
 
