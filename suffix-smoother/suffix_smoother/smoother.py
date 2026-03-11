@@ -57,7 +57,7 @@ from typing import Optional, Literal
 from dataclasses import dataclass, field
 from collections import defaultdict
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 SmootherMethod = Literal["jelinek-mercer", "witten-bell", "kneser-ney"]
 ScoreType = Literal["lac", "margin"]
