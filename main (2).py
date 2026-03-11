@@ -72,7 +72,7 @@ class QuantumSpacetimeSystem:
 
         self.qec = QuantumErrorCorrector(SuffixConfig(
             max_suffix_length=6,
-            n_qec_codes=16,
+            n_classes=16,
         ))
 
         self.metacog = MetacognitiveLayer(MetacognitiveConfig(

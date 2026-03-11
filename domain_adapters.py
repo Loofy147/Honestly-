@@ -50,7 +50,7 @@ class GenomicsAdapter:
         cfg = RibbonConfig(n_keys=n_variants, fp_rate=0.0001, band_width=128)
         self.variant_index = RibbonFilter(cfg)
         self.mutation_predictor = QuantumSuffixSmoother(
-            SuffixConfig(max_suffix_length=7, n_qec_codes=8)
+            SuffixConfig(max_suffix_length=7, n_classes=8)
         )
         self.qec = QuantumErrorCorrector(SuffixConfig(n_classes=8))
         self.n_variants = n_variants
@@ -301,7 +301,7 @@ class DrugDiscoveryAdapter:
         cfg = RibbonConfig(n_keys=n_compounds, fp_rate=0.001, band_width=128)
         self.compound_index = RibbonFilter(cfg)
         self.activity_predictor = QuantumSuffixSmoother(
-            SuffixConfig(max_suffix_length=6, n_qec_codes=8)
+            SuffixConfig(max_suffix_length=6, n_classes=8)
         )
         self.binding_energy_battery = EntanglementBattery(
             LieAlgebraConfig(battery_capacity=20.0, coupling_alpha=0.001),
@@ -425,7 +425,7 @@ class NLPAdapter:
     def __init__(self):
         self.tagger = QuantumErrorCorrector(SuffixConfig(
             max_suffix_length=8,
-            n_qec_codes=16,   # 16 Universal POS tags (UD tagset)
+            n_classes=16,   # 16 Universal POS tags (UD tagset)
         ))
         self.embedding_tracker = EKRLSQuantumEngine(EKRLSConfig(
             state_dim=4,

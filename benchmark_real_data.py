@@ -441,7 +441,7 @@ def benchmark_drug(verbose=True):
                                  0, n_bins-1)) for f in feats)
 
     smoother = QuantumSuffixSmoother(SuffixConfig(
-        max_suffix_length=5, n_qec_codes=2, smoothing_lambda=0.75
+        max_suffix_length=5, n_classes=2, smoothing_lambda=0.75
     ))
 
     # Train on training set
@@ -574,7 +574,7 @@ def benchmark_nlp(verbose=True):
 
     # ── Train Quantum Suffix Smoother
     smoother = QuantumSuffixSmoother(SuffixConfig(
-        max_suffix_length=4, n_qec_codes=N_TAGS, smoothing_lambda=0.7
+        max_suffix_length=4, n_classes=N_TAGS, smoothing_lambda=0.7
     ))
 
     # Encode suffix as tuple of char codes
@@ -701,7 +701,7 @@ def benchmark_genomics(verbose=True):
 
     # ── Quantum Suffix Smoother
     smoother = QuantumSuffixSmoother(SuffixConfig(
-        max_suffix_length=5, n_qec_codes=8, smoothing_lambda=0.7
+        max_suffix_length=5, n_classes=8, smoothing_lambda=0.7
     ))
     t0 = time.time()
     smoother.train(list(zip(train_ctx, train_cls)))

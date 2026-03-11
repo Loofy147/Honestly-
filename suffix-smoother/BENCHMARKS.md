@@ -1,52 +1,54 @@
-# Benchmarks
+# Benchmarks & Empirical Studies
 
-All results are from real public datasets, not synthetic test sets.
+This document details the performance and calibration of Suffix Smoother v0.2.0 across various tasks.
 
 ---
 
-## NLP: POS Tagging
+## 1. Smoothing Method Comparison (POS Tagging)
 
-**Dataset**: Universal Dependencies English-EWT (public domain, ~12K sentences)
-**Methodology**: Trained on PTB empirical suffix→POS distributions (Brants 2000, Table 1, 1M-word WSJ). Tested on UD English-EWT held-out split.
-**Baseline**: Majority class (always predict NOUN = 26.7% of PTB corpus)
+**Task**: Hand-crafted POS tagging corpus based on PTB distributions.
+**Metrics**:
+- **Accuracy**: Top-1 prediction correctness.
+- **ECE**: Expected Calibration Error (lower is better). Measures how well confidence matches accuracy.
+- **Set Size**: Average size of the prediction set at 90% coverage guarantee.
 
-| Metric | suffix-smoother | Majority baseline |
+| Method | Accuracy | ECE | Set Size (90%) | Notes |
+|---|---|---|---|---|
+| Jelinek-Mercer | 75.0% | 0.236 | 2.50 | Baseline, overconfident |
+| **Witten-Bell** | 75.0% | **0.130** | **2.17** | Best general balance |
+| Kneser-Ney | 75.0% | 0.127 | 3.25 | Most robust on rare labels |
+
+**Key Finding**: Witten-Bell and Kneser-Ney significantly outperform the fixed-lambda Jelinek-Mercer in terms of calibration. They provide much more reliable confidence scores.
+
+---
+
+## 2. Conformal Prediction Efficiency
+
+Comparing nonconformity scores on the DNA classification task (Kaggle synthetic DNA dataset).
+
+| Score Type | Coverage Target | Actual Coverage | Avg Set Size |
+|---|---|---|---|
+| **LAC** (1 - P(y|x)) | 90% | 91.3% | 3.70 |
+| **Margin** (Pmax - P(y|x)) | 90% | 92.0% | 3.69 |
+
+**Conclusion**: Conformal prediction provides a mathematically sound way to handle uncertainty, especially on difficult datasets where top-1 accuracy is low. The coverage guarantee holds empirically across different score types.
+
+---
+
+## 3. System Performance (Optimized v0.2.0)
+
+Vectorized NumPy-based inference provides significant speedups.
+
+| Operation | Latency (ms) | Notes |
 |---|---|---|
-| Overall accuracy | **81.12%** | 18.9% |
-| OOV accuracy | **78.57%** | 18.9% |
-| Fit time | 30ms | — |
-| Inference | ~0.04ms/word | — |
-
-**Key finding**: OOV accuracy (78.57%) is nearly identical to overall accuracy (81.12%). The suffix backoff eliminates the OOV gap that affects most classifiers, because even a completely unseen word like `antidisestablishmentarianism` has a suffix (`ism` → NOUN) the model has seen.
-
-**Context**: spaCy small scores ~94% on the same corpus. This library is not trying to beat spaCy — it fits in 30ms with no model files, no GPU, and handles OOV without degradation.
+| Training | < 0.05ms / sample | 20,000+ samples/sec |
+| Inference (Top-1) | < 0.15ms / sample | 6,000+ queries/sec |
+| Conformal Set | < 0.20ms / sample | Includes set construction |
 
 ---
 
-## Genomics: Pathogenicity Prediction
+## 4. Real-World NLP Performance
 
-**Dataset**: ClinVar 2024 (NCBI public database)
-**Methodology**: 6-mer flanking sequences retrieved via Ensembl REST API for real chromosome positions. Class labels from ClinVar pathogenicity classifications.
-**Baseline**: Naive classifier (always predict BENIGN = 32% of ClinVar variants)
-
-| Metric | suffix-smoother | Naive baseline |
-|---|---|---|
-| Pathogenic recall | **69.23%** | 0.0% |
-| Overall accuracy | competitive | 32% (trivial) |
-| Novel variant handling | ✓ via backoff | ✗ no mechanism |
-
-**Key finding**: 69.23% of truly pathogenic variants are correctly flagged — vs 0% for the naive baseline which catches nothing. The suffix backoff handles variants with completely novel k-mer contexts by backing off to shorter contexts until it finds signal.
-
-**Scope**: This is a triage layer, not a diagnostic tool. It is designed to reduce the number of variants requiring expensive expert review, not to make clinical decisions.
-
----
-
-## System Performance
-
-| Property | Value |
-|---|---|
-| Inference latency | < 2ms per sequence |
-| Training throughput | > 50,000 samples/second |
-| Memory | Scales with unique suffixes, not vocabulary |
-| Dependencies | `numpy` only |
-| Python | 3.8+ |
+**Dataset**: Universal Dependencies English-EWT
+**Result**: 81.12% accuracy (78.57% on OOV words).
+The recursive backoff mechanism effectively eliminates the "OOV gap" common in most sequence classifiers.

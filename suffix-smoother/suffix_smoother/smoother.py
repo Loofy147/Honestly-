@@ -60,6 +60,7 @@ from collections import defaultdict
 __version__ = "0.2.0"
 
 SmootherMethod = Literal["jelinek-mercer", "witten-bell", "kneser-ney"]
+ScoreType = Literal["lac", "margin"]
 
 
 @dataclass
@@ -102,7 +103,7 @@ class SuffixConfig:
 
 class _SuffixNode:
     """Internal suffix tree node — stores counts and continuation diversity."""
-    __slots__ = ("counts", "total", "continuation_contexts", "observed_labels")
+    __slots__ = ("counts", "total", "continuation_contexts", "observed_labels", "_counts_arr")
 
     def __init__(self):
         # counts[label] = total (possibly fractional with label smoothing) weight
@@ -113,6 +114,7 @@ class _SuffixNode:
         self.continuation_contexts: set = set()
         # Labels that were actually observed here (not just added by label smoothing)
         self.observed_labels: set = set()
+        self._counts_arr: Optional[np.ndarray] = None
 
     def observe(self, label: int, weight: float = 1.0, context: Optional[tuple] = None, is_actual: bool = True) -> None:
         self.counts[label] += weight
@@ -121,6 +123,7 @@ class _SuffixNode:
             self.continuation_contexts.add(context)
         if is_actual:
             self.observed_labels.add(label)
+        self._counts_arr = None
 
     def n_unique_labels(self) -> int:
         """Number of distinct labels observed at this node (T in Witten-Bell)."""
@@ -135,14 +138,17 @@ class _SuffixNode:
     def mle(self, label: int) -> float:
         return self.counts.get(label, 0.0) / self.total if self.total > 0 else 0.0
 
+    def _get_counts_arr(self, n_classes: int) -> np.ndarray:
+        if self._counts_arr is None:
+            self._counts_arr = np.zeros(n_classes)
+            for lbl, count in self.counts.items():
+                self._counts_arr[lbl] = count
+        return self._counts_arr
+
     def mle_all(self, n_classes: int) -> np.ndarray:
         if self.total == 0:
             return np.zeros(n_classes)
-        # Convert counts dict to array efficiently
-        arr = np.zeros(n_classes)
-        for lbl, count in self.counts.items():
-            arr[lbl] = count
-        return arr / self.total
+        return self._get_counts_arr(n_classes) / self.total
 
     def wb_distribution(self, n_classes: int, lower_p: np.ndarray) -> np.ndarray:
         T = self.n_unique_labels()
@@ -150,20 +156,13 @@ class _SuffixNode:
         denom = T + N
         if denom == 0:
             return lower_p.copy()
-
-        arr = np.zeros(n_classes)
-        for lbl, count in self.counts.items():
-            arr[lbl] = count
-
         backoff_w = T / denom
-        return arr / denom + backoff_w * lower_p
+        return self._get_counts_arr(n_classes) / denom + backoff_w * lower_p
 
     def kn_discounted_all(self, n_classes: int, D: float) -> np.ndarray:
         if self.total == 0:
             return np.zeros(n_classes)
-        arr = np.zeros(n_classes)
-        for lbl, count in self.counts.items():
-            arr[lbl] = max(count - D, 0.0)
+        arr = np.maximum(self._get_counts_arr(n_classes) - D, 0.0)
         return arr / self.total
 
     def kn_backoff_weight(self, D: float) -> float:
@@ -225,6 +224,11 @@ class SuffixSmoother:
         # Conformal calibration state
         self._conformal_scores: Optional[list] = None  # calibration nonconformity scores
         self._conformal_n: int = 0
+        self._conformal_score_type: ScoreType = "lac"
+        # Caches for Kneser-Ney root distribution
+        self._kn_root_p: Optional[np.ndarray] = None
+        self._kn_n1: int = 0
+        self._kn_n2: int = 0
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
@@ -253,24 +257,18 @@ class SuffixSmoother:
         if self._estimated_D is not None:
             return self._estimated_D
 
-        n1 = 0
-        n2 = 0
-        for node in self._nodes.values():
-            for lbl in node.observed_labels:
-                c = round(node.counts[lbl])
-                if c == 1:
-                    n1 += 1
-                elif c == 2:
-                    n2 += 1
+        if self._kn_n1 == 0 and self._kn_n2 == 0:
+            # Recompute counts if not already done during training
+            n1 = 0
+            n2 = 0
+            for node in list(self._nodes.values()) + [self._root]:
+                for lbl in node.observed_labels:
+                    c = round(node.counts[lbl])
+                    if c == 1: n1 += 1
+                    elif c == 2: n2 += 1
+            self._kn_n1, self._kn_n2 = n1, n2
 
-        # Also check root
-        for lbl in self._root.observed_labels:
-            c = round(self._root.counts[lbl])
-            if c == 1:
-                n1 += 1
-            elif c == 2:
-                n2 += 1
-
+        n1, n2 = self._kn_n1, self._kn_n2
         if n1 == 0 or (n1 + 2 * n2) == 0:
             self._estimated_D = 0.75
         else:
@@ -310,7 +308,10 @@ class SuffixSmoother:
             self._root.observe(lbl, w, is_actual=(lbl == main_lbl))
 
         self.training_samples += 1
-        self._estimated_D = None  # Invalidate D cache
+        self._estimated_D = None
+        self._kn_root_p = None
+        self._kn_n1 = 0
+        self._kn_n2 = 0
 
     def train(self, data: list) -> dict:
         """
@@ -381,16 +382,20 @@ class SuffixSmoother:
         D = self._get_kn_D()
 
         # Base: continuation probability from root
-        total_continuation = sum(
-            len(ctxs) for ctxs in self._label_continuation_contexts.values()
-        )
-        if total_continuation > 0:
-            p = np.zeros(self.n_classes)
-            for i in range(self.n_classes):
-                p[i] = len(self._label_continuation_contexts.get(i, set()))
-            p /= total_continuation
+        if self._kn_root_p is not None:
+            p = self._kn_root_p.copy()
         else:
-            p = np.full(self.n_classes, 1.0 / self.n_classes)
+            total_continuation = sum(len(ctxs) for ctxs in self._label_continuation_contexts.values())
+            if total_continuation > 0:
+                p = np.zeros(self.n_classes)
+                # Smooth continuation counts to avoid 0-probs for rare labels
+                alpha = 0.01
+                for i in range(self.n_classes):
+                    p[i] = len(self._label_continuation_contexts.get(i, set())) + alpha
+                p /= (total_continuation + alpha * self.n_classes)
+                self._kn_root_p = p.copy()
+            else:
+                p = np.full(self.n_classes, 1.0 / self.n_classes)
 
         # Layer by layer: shortest suffix → longest
         for length in range(1, min(n + 1, self.cfg.max_suffix_length + 1)):
@@ -478,7 +483,7 @@ class SuffixSmoother:
 
     # ── Conformal Prediction ───────────────────────────────────────────────
 
-    def calibrate(self, calibration_data: list) -> dict:
+    def calibrate(self, calibration_data: list, score_type: ScoreType = "lac") -> dict:
         """
         Calibrate conformal predictor using split CP (Papadopoulos 2002).
 
@@ -503,10 +508,21 @@ class SuffixSmoother:
         scores = []
         for seq, true_label in calibration_data:
             dist = self.predict_distribution(seq)
-            # LAC nonconformity score: 1 - P(true label | seq)
-            # Small score = well-predicted; large score = surprising
-            score = 1.0 - dist.get(int(true_label), 0.0)
+            p_true = dist.get(int(true_label), 0.0)
+
+            if score_type == "lac":
+                # Least Attempted Class: 1 - P(y|x)
+                score = 1.0 - p_true
+            elif score_type == "margin":
+                # Margin-based: P(max) - P(y|x)
+                p_max = max(dist.values())
+                score = p_max - p_true
+            else:
+                raise ValueError(f"Unknown score_type '{score_type}'")
+
             scores.append(score)
+
+        self._conformal_score_type = score_type
 
         self._conformal_scores = sorted(scores)
         self._conformal_n = len(scores)
@@ -576,12 +592,18 @@ class SuffixSmoother:
         Q = self._conformal_quantile(alpha)
         dist = self.predict_distribution(seq)
 
-        # Include all labels whose nonconformity score <= Q
-        # s(x,y) = 1 - P(y|x) <= Q  ↔  P(y|x) >= 1 - Q
-        threshold_prob = 1.0 - Q
-        included = sorted(
-            [label for label, prob in dist.items() if prob >= threshold_prob]
-        )
+        included = []
+        if self._conformal_score_type == "lac":
+            # s(x,y) = 1 - P(y|x) <= Q  =>  P(y|x) >= 1 - Q
+            threshold_prob = 1.0 - Q
+            included = [label for label, prob in dist.items() if prob >= threshold_prob]
+        elif self._conformal_score_type == "margin":
+            # s(x,y) = P(max) - P(y|x) <= Q  =>  P(y|x) >= P(max) - Q
+            p_max = max(dist.values())
+            threshold_prob = p_max - Q
+            included = [label for label, prob in dist.items() if prob >= threshold_prob]
+
+        included = sorted(included)
 
         # Edge case: if set is empty (all probs below threshold), include top-1
         if not included:

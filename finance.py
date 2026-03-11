@@ -138,7 +138,7 @@ class FinancialQuantumAnalyzer:
         ))
         self.regime_detector = QuantumErrorCorrector(SuffixConfig(
             max_suffix_length=5,
-            n_qec_codes=8,       # 8 market regimes
+            n_classes=8,       # 8 market regimes
         ))
         self.liquidity_battery = EntanglementBattery(
             LieAlgebraConfig(battery_capacity=1.0, coupling_alpha=0.01),

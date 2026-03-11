@@ -129,7 +129,7 @@ class VariantDB:
         self.smoother = QuantumSuffixSmoother(SuffixConfig(
             max_suffix_length=6,
             smoothing_lambda=0.72,
-            n_qec_codes=8,
+            n_classes=8,
         ))
 
         self._build_stats: dict = {}

@@ -1,12 +1,6 @@
 import numpy as np
 from typing import Optional, Any
-from dataclasses import dataclass, field
 from suffix_smoother import SuffixSmoother, SuffixConfig
-
-@dataclass
-class QuantumSuffixConfig(SuffixConfig):
-    """Configuration for Quantum Suffix Smoother."""
-    n_qec_codes: int = 16  # Alias for n_classes in QEC context
 
 class QuantumSuffixSmoother(SuffixSmoother):
     """
@@ -14,6 +8,7 @@ class QuantumSuffixSmoother(SuffixSmoother):
     Maintains compatibility with existing QEC code.
     """
     def __init__(self, config: Optional[Any] = None):
+        # Handle legacy n_qec_codes if present
         if config and hasattr(config, 'n_qec_codes'):
             config.n_classes = config.n_qec_codes
         super().__init__(config)
@@ -38,7 +33,7 @@ class QuantumErrorCorrector:
     """
 
     def __init__(self, config: Optional[Any] = None):
-        self.cfg = config or QuantumSuffixConfig()
+        self.cfg = config or SuffixConfig(n_classes=16)
         if hasattr(self.cfg, 'n_qec_codes'):
             self.cfg.n_classes = self.cfg.n_qec_codes
 
