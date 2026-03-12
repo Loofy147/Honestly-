@@ -1,52 +1,45 @@
-# Benchmarks
+# Benchmarks & Empirical Studies
 
-All results are from real public datasets, not synthetic test sets.
-
----
-
-## NLP: POS Tagging
-
-**Dataset**: Universal Dependencies English-EWT (public domain, ~12K sentences)
-**Methodology**: Trained on PTB empirical suffix→POS distributions (Brants 2000, Table 1, 1M-word WSJ). Tested on UD English-EWT held-out split.
-**Baseline**: Majority class (always predict NOUN = 26.7% of PTB corpus)
-
-| Metric | suffix-smoother | Majority baseline |
-|---|---|---|
-| Overall accuracy | **81.12%** | 18.9% |
-| OOV accuracy | **78.57%** | 18.9% |
-| Fit time | 30ms | — |
-| Inference | ~0.04ms/word | — |
-
-**Key finding**: OOV accuracy (78.57%) is nearly identical to overall accuracy (81.12%). The suffix backoff eliminates the OOV gap that affects most classifiers, because even a completely unseen word like `antidisestablishmentarianism` has a suffix (`ism` → NOUN) the model has seen.
-
-**Context**: spaCy small scores ~94% on the same corpus. This library is not trying to beat spaCy — it fits in 30ms with no model files, no GPU, and handles OOV without degradation.
+This document details the performance and calibration of Suffix Smoother v0.3.0.
 
 ---
 
-## Genomics: Pathogenicity Prediction
+## 1. Speed Improvements (v0.3.0 vs v0.2.1)
 
-**Dataset**: ClinVar 2024 (NCBI public database)
-**Methodology**: 6-mer flanking sequences retrieved via Ensembl REST API for real chromosome positions. Class labels from ClinVar pathogenicity classifications.
-**Baseline**: Naive classifier (always predict BENIGN = 32% of ClinVar variants)
+Optimizations in v0.3.0 including preallocated distributions, cached backoff weights, and integer-based label tracking provide significant speedups across all smoothing methods.
 
-| Metric | suffix-smoother | Naive baseline |
-|---|---|---|
-| Pathogenic recall | **69.23%** | 0.0% |
-| Overall accuracy | competitive | 32% (trivial) |
-| Novel variant handling | ✓ via backoff | ✗ no mechanism |
-
-**Key finding**: 69.23% of truly pathogenic variants are correctly flagged — vs 0% for the naive baseline which catches nothing. The suffix backoff handles variants with completely novel k-mer contexts by backing off to shorter contexts until it finds signal.
-
-**Scope**: This is a triage layer, not a diagnostic tool. It is designed to reduce the number of variants requiring expensive expert review, not to make clinical decisions.
+| Method | v0.2.1 (μs/query) | v0.3.0 (μs/query) | Speedup |
+|---|---|---|---|
+| Jelinek-Mercer | 14.1 | **7.9** | **1.79x** |
+| Witten-Bell | 13.7 | **7.0** | **1.96x** |
+| Kneser-Ney | 16.0 | **9.6** | **1.66x** |
 
 ---
 
-## System Performance
+## 2. Smoothing Method Comparison (POS Tagging)
 
-| Property | Value |
-|---|---|
-| Inference latency | < 2ms per sequence |
-| Training throughput | > 50,000 samples/second |
-| Memory | Scales with unique suffixes, not vocabulary |
-| Dependencies | `numpy` only |
-| Python | 3.8+ |
+**Task**: Hand-crafted POS tagging corpus based on PTB distributions.
+**Metrics**:
+- **Accuracy**: Top-1 prediction correctness.
+- **ECE**: Expected Calibration Error (lower is better).
+- **Set Size**: Average size of the prediction set at 90% coverage guarantee.
+
+| Method | Accuracy | ECE | Set Size (90%) | Notes |
+|---|---|---|---|---|
+| Jelinek-Mercer | 75.0% | 0.236 | 2.50 | Baseline, overconfident |
+| **Witten-Bell** | 75.0% | **0.130** | **2.17** | Best general balance |
+| Kneser-Ney | 75.0% | 0.127 | 3.25 | Most robust on rare labels |
+
+---
+
+## 3. KN Memory Optimization
+
+v0.3.0 reduces Kneser-Ney memory usage by **44%** by converting continuation context sets to integer counts after training and freeing the sets. Memory usage is now O(nodes × classes) rather than O(total training samples).
+
+---
+
+## 4. Real-World NLP Performance
+
+**Dataset**: Universal Dependencies English-EWT
+**Result**: 81.12% accuracy (78.57% on OOV words).
+The recursive backoff mechanism effectively eliminates the "OOV gap" common in most sequence classifiers.
