@@ -1,0 +1,13 @@
+{
+  "id": "hichambedrani/suffix-smoother-v040-demo",
+  "title": "Suffix Smoother v0.4.0 Industrial Demo",
+  "code_file": "suffix_smoother_v040_demo.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "false",
+  "enable_gpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": []
+}

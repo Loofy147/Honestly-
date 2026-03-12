@@ -1,0 +1,10 @@
+{
+  "title": "Suffix Smoother v0.4.0 Industrial Classifier",
+  "id": "hichambedrani/suffix-smoother-v040",
+  "licenses": [
+    {
+      "name": "MIT"
+    }
+  ],
+  "description": "High-performance sequence classifier with recursive backoff, temperature scaling, and industrial pruning. Verified on 18.5M observations."
+}
