@@ -1,10 +1,10 @@
 """
-Suffix Smoother v0.3.0 — High-Performance Recursive Sequence Classifier
+Suffix Smoother v0.4.0 — High-Performance Recursive Sequence Classifier
 =======================================================================
 Upgraded with vectorized batch inference, memory-efficient node tracking,
 collaborative model fusion, and production-grade reliability monitoring.
 
-Key features (v0.3.0):
+Key features (v0.4.0):
 - Speed: Vectorized NumPy core (+80% throughput via predict_batch)
 - Memory: Integer-based label tracking (replaces costly Python sets)
 - Memory: Kneser-Ney context set freeing after training
@@ -15,13 +15,14 @@ Key features (v0.3.0):
 import math
 import pickle
 import numpy as np
+import json
 import bisect
 import copy
 from typing import Optional, Literal, List, Dict, Tuple, Any
 from dataclasses import dataclass
 from collections import defaultdict
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 SmootherMethod = Literal["jelinek-mercer", "witten-bell", "kneser-ney"]
 
@@ -39,6 +40,7 @@ class SuffixConfig:
     label_smoothing: float = 0.0
     kn_discount: Optional[float] = None
     max_nodes: Optional[int] = None
+    temperature: float = 1.0
 
     def validate(self):
         """Check configuration validity."""
@@ -47,6 +49,7 @@ class SuffixConfig:
         if self.n_classes < 2: raise ValueError("n_classes must be >= 2")
         if not (0 <= self.label_smoothing < 1.0): raise ValueError("label_smoothing must be in [0, 1)")
         if self.kn_discount is not None and self.kn_discount < 0: raise ValueError("kn_discount must be >= 0")
+        if self.temperature <= 0: raise ValueError("temperature must be > 0")
 
 
 class _SuffixNode:
@@ -88,6 +91,23 @@ class _SuffixNode:
             for label, ctx_set in self._seen_contexts.items():
                 self.continuation_counts[label] = len(ctx_set)
             self._seen_contexts = None
+
+    def to_dict(self) -> dict:
+        return {
+            "counts": {str(k): float(v) for k, v in self.counts.items()},
+            "total": float(self.total),
+            "continuation_counts": {str(k): int(v) for k, v in self.continuation_counts.items()},
+            "_T": int(self._T)
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "_SuffixNode":
+        node = cls()
+        node.counts = {int(k): v for k, v in d["counts"].items()}
+        node.total = d["total"]
+        node.continuation_counts = {int(k): v for k, v in d["continuation_counts"].items()}
+        node._T = d.get("_T", len(node.counts))
+        return node
 
     def n_unique_labels(self) -> int:
         return self._T
@@ -268,32 +288,34 @@ class SuffixSmoother:
 
     def _infer(self, seq: tuple) -> np.ndarray:
         method = self.cfg.smoothing_method
+        p = self._uniform_p.copy()
         if method == "jelinek-mercer":
-            p = self._uniform_p.copy()
             n = len(seq)
             for length in range(1, min(n + 1, self.cfg.max_suffix_length + 1)):
                 node = self._nodes.get(seq[max(0, n - length):])
                 if node is not None and node.total >= self.cfg.min_count:
                     lam = self._jm_lambdas[length - 1]
                     p = lam * node.mle_all(self.n_classes) + (1.0 - lam) * p
-            return p
-        if method == "witten-bell":
-            p = self._uniform_p.copy()
+        elif method == "witten-bell":
             n = len(seq)
             for length in range(1, min(n + 1, self.cfg.max_suffix_length + 1)):
                 node = self._nodes.get(seq[max(0, n - length):])
                 if node is not None and node.total >= self.cfg.min_count:
                     p = node.wb_distribution(self.n_classes, p)
-            return p
-        if method == "kneser-ney":
+        elif method == "kneser-ney":
             self._finalize_kn()
             p, D, n = self._kn_base_p.copy(), self._get_kn_D(), len(seq)
             for length in range(1, min(n + 1, self.cfg.max_suffix_length + 1)):
                 node = self._nodes.get(seq[max(0, n - length):])
                 if node is not None and node.total >= self.cfg.min_count:
                     p = node.kn_step(self.n_classes, D, p)
-            return p
-        raise ValueError(f"Unknown method '{method}'.")
+        else:
+            raise ValueError(f"Unknown method {method!r}.")
+
+        if self.cfg.temperature != 1.0:
+            p = np.power(np.maximum(p, 1e-20), 1.0 / self.cfg.temperature)
+            p /= p.sum()
+        return p
 
     def predict_distribution(self, seq: tuple) -> Dict[int, float]:
         p = self._infer(seq)
@@ -496,9 +518,10 @@ class SuffixSmoother:
 
     def clone(self) -> "SuffixSmoother": return copy.deepcopy(self)
 
-    def prune(self, min_kl: float = 0.1, min_samples: int = 1) -> dict:
+    def prune(self, min_count: int = 2, min_kl: float = 0.0) -> dict:
+        """Remove nodes with low count or low discriminative power."""
         u = 1.0 / self.n_classes
-        rem = [s for s, n in self._nodes.items() if _kl_divergence(n.counts, u, self.n_classes) < min_kl or n.total < min_samples]
+        rem = [s for s, n in self._nodes.items() if n.total < min_count or (min_kl > 0 and _kl_divergence(n.counts, u, self.n_classes) < min_kl)]
         for s in rem: del self._nodes[s]
         return {"removed": len(rem), "remaining": len(self._nodes)}
 
@@ -567,7 +590,7 @@ class SuffixSmoother:
     def model_summary(self) -> dict:
         if not self._nodes: return {"nodes": 0, "samples": self.training_samples}
         kls = [_kl_divergence(n.counts, 1.0/self.n_classes, self.n_classes) for n in self._nodes.values()]
-        return {"version": "0.3.0", "smoothing": self.cfg.smoothing_method, "nodes": len(self._nodes), "samples": self.training_samples, "mean_kl": float(np.mean(kls)), "calibrated": self.is_calibrated}
+        return {"version": "0.4.0", "smoothing": self.cfg.smoothing_method, "nodes": len(self._nodes), "samples": self.training_samples, "mean_kl": float(np.mean(kls)), "calibrated": self.is_calibrated}
 
     @staticmethod
     def compare(models: List[Tuple[str, "SuffixSmoother"]], test_data: List[Tuple[tuple, int]]) -> List[dict]:
@@ -589,6 +612,38 @@ class SuffixSmoother:
             if mask.sum() > 0: ece += (mask.sum()/len(p)) * abs(l[mask].mean() - p[mask].mean())
         return float(ece)
 
+    @staticmethod
+    def calibration_curve(probs: list, labels: list, n_bins: int = 10) -> List[dict]:
+        p, l = np.array(probs), np.array(labels, dtype=float)
+        curve = []
+        for b in range(n_bins):
+            mask = (p >= b/n_bins) & (p <= (b+1)/n_bins if b==n_bins-1 else p < (b+1)/n_bins)
+            if mask.sum() > 0:
+                curve.append({
+                    "bin": b,
+                    "confidence": float(p[mask].mean()),
+                    "accuracy": float(l[mask].mean()),
+                    "count": int(mask.sum())
+                })
+        return curve
+
+    def fit_temperature(self, val_data: List[Tuple[tuple, int]], range_t: Tuple[float, float] = (0.1, 5.0), steps: int = 50) -> float:
+        original_temp = self.cfg.temperature
+        self.cfg.temperature = 1.0
+        dists = self.predict_distributions_batch([d[0] for d in val_data])
+        labels = np.array([d[1] for d in val_data], dtype=int)
+        best_t, min_nll = 1.0, float("inf")
+        for t in np.linspace(range_t[0], range_t[1], steps):
+            nll = 0.0
+            for i, d in enumerate(dists):
+                d_scaled = np.power(np.maximum(d, 1e-20), 1.0/t)
+                d_scaled /= d_scaled.sum()
+                nll -= np.log(np.maximum(d_scaled[labels[i]], 1e-20))
+            nll /= len(val_data)
+            if nll < min_nll: min_nll, best_t = nll, t
+        self.cfg.temperature = best_t
+        return best_t
+
     def optimize_kn_discount(self, val_data: List[Tuple[tuple, int]]) -> float:
         if self.cfg.smoothing_method != "kneser-ney": return 0.0
         best_d, best_acc = 0.75, -1.0
@@ -603,6 +658,30 @@ class SuffixSmoother:
         if not test_data: return 0.0
         preds = self.predict_batch([d[0] for d in test_data])
         return sum(1 for p, l in zip(preds, test_data) if p[0] == int(l[1])) / len(test_data)
+
+    def to_json(self, path: str) -> None:
+        if self.cfg.smoothing_method == "kneser-ney": self._finalize_kn()
+        data = {
+            "version": __version__,
+            "config": self.cfg.__dict__,
+            "training_samples": self.training_samples,
+            "root": self._root.to_dict(),
+            "nodes": { "|".join(map(str, k)): v.to_dict() for k, v in self._nodes.items() }
+        }
+        with open(path, "w") as f: json.dump(data, f)
+
+    @classmethod
+    def from_json(cls, path: str) -> "SuffixSmoother":
+        with open(path, "r") as f: data = json.load(f)
+        cfg = SuffixConfig(**data["config"])
+        model = cls(cfg)
+        model.training_samples = data["training_samples"]
+        model._root = _SuffixNode.from_dict(data["root"])
+        model._nodes = {
+            tuple(map(int, k.split("|"))) if k else (): _SuffixNode.from_dict(v)
+            for k, v in data["nodes"].items()
+        }
+        return model
 
     def save(self, path: str) -> None:
         if self.cfg.smoothing_method == "kneser-ney": self._finalize_kn()
