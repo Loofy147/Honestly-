@@ -6,7 +6,11 @@ Zero neural networks. Zero model files. Zero corpus downloads. Handles OOV via p
 
 ---
 
-## What's New in v0.3.0
+## What's New in v0.4.0
+- **Post-Training Pruning**: `prune(min_count=k)` for extreme memory efficiency.
+- **Calibration Diagnostics**: `calibration_curve()` to visualize model reliability.
+- **Temperature Scaling**: `fit_temperature()` and `temperature` setting for better calibration.
+- **Portability**: `to_json()` and `from_json()` for cross-language/version persistence.
 
 - **1.8x - 2x Speedup**: Vectorized core loops and optimized backoff weight caching.
 - **Advanced Conformal Prediction**:
@@ -59,7 +63,7 @@ prediction_set = fused.predict_set(seq, coverage=0.95)
 
 ---
 
-## Performance (v0.3.0)
+## Performance (v0.4.0)
 
 | Operation | v0.2.1 | v0.3.0 | Improvement |
 |---|---|---|---|
