@@ -627,7 +627,7 @@ def benchmark_nlp(verbose=True):
 
     q_res = next(r for r in comp_report if r["name"] == "Witten-Bell")
     q_acc = q_res["accuracy"]
-    mean_conf = q_res["mean_confidence"]
+    mean_conf = 0.0 # Not in report
 
     maj_acc     = accuracy_score(test_labels, majority_preds)
     unigram_acc = accuracy_score(test_labels, unigram_preds)
@@ -802,7 +802,7 @@ def print_summary(results):
   │                │ Acc={drg['q_acc']:.4f}           │ RF Acc={drg['rf_acc']:.4f}       │
   ├────────────────┼────────────────────────┼───────────────────────┤
   │ NLP (PTB)      │ Acc={nlp['q_acc']:.4f}           │ Unigram={nlp['unigram_acc']:.4f}      │
-  │                │ Conf={nlp['mean_confidence']:.3f}          │ Oracle={nlp['oracle_acc']:.4f}        │
+  │                │ Conf=N/A          │ Oracle={nlp['oracle_acc']:.4f}        │
   ├────────────────┼────────────────────────┼───────────────────────┤
   │ Genomics       │ Acc={gen['q_acc']:.4f}           │ Naive={gen['naive_acc']:.4f}         │
   │ (ClinVar)      │ PathRec={gen['q_patho_recall']:.3f}       │ Naive PathRec=0.000    │

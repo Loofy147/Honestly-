@@ -7,7 +7,7 @@
     "dir_acc_ewma": 0.6574642126789366,
     "crash_separation": -0.4107056565058578,
     "n_days": 1000,
-    "inference_time_s": 3.4365317821502686
+    "inference_time_s": 3.469499111175537
   },
   "climate": {
     "q_rmse": 1.0747709759078696,
@@ -29,16 +29,16 @@
     "rf_acc": 0.958041958041958,
     "ribbon_memory_kb": 0.548828125,
     "ribbon_savings_pct": 26.631853785900784,
-    "q_train_ms": 4.297018051147461,
-    "lr_train_ms": 5.654573440551758,
-    "rf_train_ms": 238.27123641967773
+    "q_train_ms": 4.122018814086914,
+    "lr_train_ms": 5.4988861083984375,
+    "rf_train_ms": 241.24646186828613
   },
   "nlp": {
     "q_acc": 1.0,
     "majority_acc": 0.3541666666666667,
     "unigram_acc": 0.3541666666666667,
     "oracle_acc": 1.0,
-    "mean_confidence": 0.8265,
+    "mean_confidence": 0.0,
     "n_test_words": 48
   },
   "genomics": {
@@ -72,6 +72,6 @@
         "fp_rate": 0.0
       }
     },
-    "train_time_s": 0.8366611003875732
+    "train_time_s": 0.8309836387634277
   }
 }

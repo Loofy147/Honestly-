@@ -207,6 +207,42 @@ class POSTagger:
         unc = self.smoother.uncertainty(ctx)
         return UPOS[tag_id], round(conf, 4), round(unc, 3)
 
+
+    def tag_set_tokens(self, tokens: list[str], coverage: float = 0.90) -> list[dict]:
+        """
+        Generate tag sets (conformal) for a list of tokens in a single batch pass.
+        Returns list of {word, tag_set, n_candidates, confidence, threshold}.
+        """
+        if not self._fitted: raise RuntimeError("Call fit() first.")
+
+        results = [None] * len(tokens)
+        open_indices = []
+        open_contexts = []
+
+        for i, word in enumerate(tokens):
+            lower = word.lower()
+            if lower in CLOSED_CLASS:
+                tag, conf = CLOSED_CLASS[lower]
+                results[i] = {"word": word, "tag_set": [tag], "n_candidates": 1, "confidence": conf, "threshold": 0.0}
+            else:
+                open_indices.append(i)
+                open_contexts.append(self._encode(word, maxlen=6))
+
+        if open_indices:
+            # v0.3.0 batch conformal prediction
+            batch_sets = self.smoother.predict_set_batch(open_contexts, coverage=coverage)
+            batch_preds = self.smoother.predict_batch(open_contexts)
+
+            for idx, p_set, p_top in zip(open_indices, batch_sets, batch_preds):
+                results[idx] = {
+                    "word": tokens[idx],
+                    "tag_set": [UPOS[l] for l in p_set['labels']],
+                    "n_candidates": p_set['n_labels'],
+                    "confidence": round(p_top[1], 4),
+                    "threshold": round(p_set['threshold'], 4)
+                }
+        return results
+
     def tag_tokens(self, tokens: list[str]) -> list[dict]:
         """
         Tag a list of tokens. Optimized with v0.3.0 batch prediction.
@@ -269,9 +305,9 @@ class POSTagger:
             "tag": tag,
             "confidence": conf,
             "uncertainty_bits": unc,
-            "max_uncertainty_bits": round(self.smoother.max_uncertainty(), 3),
+            "max_uncertainty_bits": round(np.log2(self.smoother.n_classes), 3),
             "uncertainty_reduction_pct": round(
-                100 * (1 - unc / self.smoother.max_uncertainty()), 1
+                100 * (1 - unc / np.log2(self.smoother.n_classes)), 1
             ),
             "top_3": [(UPOS[k], round(v, 4)) for k, v in ranked[:3]],
         }

@@ -84,7 +84,9 @@ class QuantumErrorCorrector:
 
         if quality > 0.95:
             self.successful_corrections += 1
-            self.smoother.train([(state_seq, code)])
+            # v0.3.0 Online Learning: update both counts and calibration
+            self.smoother.train_one(state_seq, code)
+            self.smoother.update_calibration(state_seq, code)
 
         return {
             "qec_code": code,
