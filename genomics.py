@@ -182,13 +182,11 @@ class VariantDB:
             c, p, r, a, ctx, cls = row[0], row[1], row[2], row[3], row[4], row[5]
             kmer = _encode_kmer(ctx)
             training.append((kmer, cls))
-            # Also train on sub-contexts (shorter k-mers for backoff)
-            for k in range(3, 6):
-                sub = _encode_kmer(ctx, k=k)
-                training.append((sub, cls))
 
         t0 = time.time()
         self.smoother.train(training)
+        pruned = self.smoother.prune(min_kl=0.01)
+        self._build_stats["nodes_pruned"] = pruned["nodes_removed"]
         smoother_time = time.time() - t0
 
         self._built = True
@@ -264,19 +262,55 @@ class VariantDB:
 
     def batch_predict(self, variants: list) -> list[dict]:
         """
-        Batch pathogenicity prediction.
+        Batch pathogenicity prediction. Optimized in v0.3.0.
         variants: list of (chrom, pos, ref, alt) or (chrom, pos, ref, alt, context) tuples.
         Returns list of prediction dicts.
         """
-        results = []
+        encoded_ctxs = []
         for row in variants:
-            if len(row) == 5:
-                c, p, r, a, ctx = row
-            else:
-                c, p, r, a = row[:4]
-                ctx = "NNNNNN"
-            results.append(self.predict(c, p, r, a, ctx))
+            ctx = row[4] if len(row) == 5 else "NNNNNN"
+            encoded_ctxs.append(_encode_kmer(ctx))
+
+        dists = self.smoother.predict_distributions_batch(encoded_ctxs)
+
+        results = []
+        for i, row in enumerate(variants):
+            c, p, r, a = row[:4]
+            ctx = row[4] if len(row) == 5 else "NNNNNN"
+            cpg = _is_cpg(ctx)
+
+            dist_arr = dists[i]
+            dist = {k: float(dist_arr[k]) for k in range(len(dist_arr))}
+
+            if cpg:
+                for cls_id, bonus in CPG_BONUS.items():
+                    if cls_id in dist:
+                        dist[cls_id] = min(1.0, dist[cls_id] + bonus)
+                total = sum(dist.values())
+                dist = {k: v / total for k, v in dist.items()}
+
+            best_cls = max(dist, key=dist.get)
+            conf = dist[best_cls]
+
+            results.append({
+                "chrom": str(c), "pos": p, "ref": r, "alt": a,
+                "in_database": self.is_known(c, p, r, a),
+                "class": CLASS_NAMES[best_cls],
+                "class_id": best_cls,
+                "confidence": round(conf, 4),
+                "actionable": best_cls in ACTIONABLE_CLASSES,
+                "cpg_site": cpg,
+                "full_distribution": {CLASS_NAMES[k]: round(v, 4) for k, v in dist.items()},
+            })
         return results
+
+    def get_important_motifs(self, top_n: int = 10) -> list:
+        """Identify top predictive genomic motifs via KL divergence (v0.3.0)."""
+        importance = self.smoother.feature_importance(top_n=top_n)
+        base_map_inv = {0: 'A', 1: 'T', 2: 'G', 3: 'C', 4: 'N'}
+        for f in importance:
+            f['motif'] = "".join(base_map_inv.get(b, 'N') for b in f['suffix'])
+        return importance
 
     def memory_report(self) -> dict:
         """Memory efficiency of the Ribbon Filter vs Bloom baseline."""

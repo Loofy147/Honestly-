@@ -94,6 +94,12 @@ class QuantumSpacetimeSystem:
             print(f"  ✓ Memory savings: {ribbon_result['memory_reduction_pct']:.1f}% vs Bloom")
             print(f"  ✓ QEC initialized: {qec_init['total_nodes']} suffix nodes")
 
+            # v0.3.0 Feature Importance
+            importance = self.qec.smoother.feature_importance(top_n=3)
+            print("  ✓ Top 3 Predictive Suffixes (v0.3.0):")
+            for f in importance:
+                print(f"    Suffix {f['suffix']} -> KL: {f['kl_divergence']:.3f}")
+
         return {"ribbon_filter": ribbon_result, "qec_initialization": qec_init,
                 "memory_report": self.entanglement_index.memory_report()}
 
@@ -171,7 +177,12 @@ class QuantumSpacetimeSystem:
             print(f"  ✓ RMSE: {ekrls_summary['rmse']:.4f}")
             print(f"  ✓ Meta alerts: {meta_alerts_total}")
 
-        return {"ekrls_summary": ekrls_summary, "meta_alerts": meta_alerts_total}
+        # v0.3.0 Memory Optimization
+        pruned = self.qec.prune_model(min_kl=0.01)
+        if self.cfg.verbose:
+            print(f"  ✓ Memory optimized: removed {pruned['nodes_removed']} low-value nodes")
+
+        return {"ekrls_summary": ekrls_summary, "meta_alerts": meta_alerts_total, "nodes_pruned": pruned['nodes_removed']}
 
     def phase_test(self) -> dict:
         """
@@ -296,6 +307,14 @@ class QuantumSpacetimeSystem:
             "calibration_report": calibration,
         }
 
+    @classmethod
+    def merge_systems(cls, sys_a: 'QuantumSpacetimeSystem', sys_b: 'QuantumSpacetimeSystem') -> 'QuantumSpacetimeSystem':
+        """Merge two entire spacetime systems (v0.3.0)."""
+        merged_sys = cls(sys_a.cfg)
+        merged_sys.qec.smoother = QuantumSuffixSmoother.merge(sys_a.qec.smoother, sys_b.qec.smoother)
+        # Note: In a real system we would also merge batteries/EKRLS states if applicable
+        return merged_sys
+
     def run(self) -> dict:
         """Execute the full RCF pipeline: Study → Understand → Integrate → Test → Validate."""
         np.random.seed(self.cfg.seed)
@@ -340,7 +359,7 @@ if __name__ == "__main__":
     report = system.run()
 
     # Save report
-    with open("/home/claude/quantum_spacetime/system_report.json", "w") as f:
+    with open("system_report.json", "w") as f:
         # Convert numpy types for JSON serialization
         def convert(obj):
             if isinstance(obj, (np.integer,)):

@@ -1,0 +1,77 @@
+{
+  "finance": {
+    "rmse_quantum": 0.2661778813361118,
+    "rmse_ewma": 0.045034013208372484,
+    "rmse_rolling": 0.0,
+    "dir_acc_quantum": 0.46319018404907975,
+    "dir_acc_ewma": 0.6574642126789366,
+    "crash_separation": -0.4107056565058578,
+    "n_days": 1000,
+    "inference_time_s": 3.469499111175537
+  },
+  "climate": {
+    "q_rmse": 1.0747709759078696,
+    "ar1_rmse": 0.09285373527717812,
+    "persistence_rmse": 0.09168000807480885,
+    "q_f1": 0.0,
+    "zscore_f1": 0.39999999999999997,
+    "q_precision": 0.0,
+    "q_recall": 0.0,
+    "trend_detected_C": 0.7947976190476191,
+    "n_years": 144
+  },
+  "drug": {
+    "q_auc": 0.9267295597484276,
+    "q_acc": 0.8671328671328671,
+    "lr_auc": 0.9976939203354298,
+    "lr_acc": 0.986013986013986,
+    "rf_auc": 0.9948637316561845,
+    "rf_acc": 0.958041958041958,
+    "ribbon_memory_kb": 0.548828125,
+    "ribbon_savings_pct": 26.631853785900784,
+    "q_train_ms": 4.122018814086914,
+    "lr_train_ms": 5.4988861083984375,
+    "rf_train_ms": 241.24646186828613
+  },
+  "nlp": {
+    "q_acc": 1.0,
+    "majority_acc": 0.3541666666666667,
+    "unigram_acc": 0.3541666666666667,
+    "oracle_acc": 1.0,
+    "mean_confidence": 0.0,
+    "n_test_words": 48
+  },
+  "genomics": {
+    "q_acc": 0.317,
+    "naive_acc": 0.303,
+    "q_patho_recall": 0.2658959537572254,
+    "naive_patho_recall": 0.0,
+    "memory_results": {
+      "10000": {
+        "ribbon_kb": 12.8505859375,
+        "bloom_kb": 17.55078125,
+        "savings_pct": 26.780547518361896,
+        "fp_rate": 0.0
+      },
+      "50000": {
+        "ribbon_kb": 64.248046875,
+        "bloom_kb": 87.75390625,
+        "savings_pct": 26.786111729356776,
+        "fp_rate": 0.0
+      },
+      "100000": {
+        "ribbon_kb": 128.49609375,
+        "bloom_kb": 175.5078125,
+        "savings_pct": 26.786111729356776,
+        "fp_rate": 0.0
+      },
+      "500000": {
+        "ribbon_kb": 642.4755859375,
+        "bloom_kb": 877.5390625,
+        "savings_pct": 26.78666815045626,
+        "fp_rate": 0.0
+      }
+    },
+    "train_time_s": 0.8309836387634277
+  }
+}

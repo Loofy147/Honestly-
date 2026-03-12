@@ -110,6 +110,19 @@ class GenomicsAdapter:
             "suffix_nodes": len(self.mutation_predictor.nodes),
         }
 
+    def merge_models(self, other: 'GenomicsAdapter') -> 'GenomicsAdapter':
+        """Merge another genomics model into this one (v0.3.0)."""
+        self.mutation_predictor = QuantumSuffixSmoother.merge(self.mutation_predictor, other.mutation_predictor)
+        return self
+
+    def get_top_variants(self, n: int = 10) -> list:
+        """Identify top predictive genomic motifs via KL divergence (v0.3.0)."""
+        importance = self.mutation_predictor.feature_importance(top_n=n)
+        base_map_inv = {0: 'A', 1: 'T', 2: 'G', 3: 'C', 4: 'N'}
+        for f in importance:
+            f['motif'] = "".join(base_map_inv.get(b, 'N') for b in f['suffix'])
+        return importance
+
     def query_variant(self, chrom: int, pos: int, ref: str, alt: str,
                        context_kmer: str = "ATGCA") -> dict:
         """Query a variant and predict its classification."""
@@ -364,6 +377,10 @@ class DrugDiscoveryAdapter:
             "suffix_nodes": len(self.activity_predictor.nodes),
             "binding_energy_stored": self.binding_energy_battery.E_battery,
         }
+
+    def get_important_scaffolds(self, n: int = 10) -> list:
+        """Rank molecular features by activity prediction power (v0.3.0)."""
+        return self.activity_predictor.feature_importance(top_n=n)
 
     def predict_activity(self, ring_count: int, hbd: int, hba: int,
                           mw_bin: int, logp_bin: int) -> dict:

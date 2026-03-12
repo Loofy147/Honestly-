@@ -21,6 +21,8 @@ ISOMORPHISM TABLE:
  Viterbi decoding         →  Optimal path in any hidden Markov model
  Ribbon filter            →  Space-efficient membership in any large set
  Q-score Bayesian         →  Universal model quality metric
+ Model Merging            →  Knowledge fusion / Distributed learning
+ Feature Importance       →  Structural motif discovery / Interpretability
 ══════════════════════════════════════════════════════════════════
 
 DOMAINS IMPLEMENTED:

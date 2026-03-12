@@ -198,7 +198,7 @@ def benchmark_finance(verbose=True):
     ])
 
     # ── Quantum EKRLS vol forecast
-    from cross_domain.finance import FinancialQuantumAnalyzer, encode_market_state
+    from finance import FinancialQuantumAnalyzer, encode_market_state
     volume = rng.lognormal(14, 0.3, N)
     market = {
         "prices": prices, "returns": returns,
@@ -310,7 +310,7 @@ def benchmark_climate(verbose=True):
         return np.array(preds)
 
     # ── Quantum EKRLS tracking
-    from cross_domain.domain_adapters import ClimateAdapter
+    from domain_adapters import ClimateAdapter
     adapter = ClimateAdapter(seed=42)
 
     # Build 4D climate state: [T_anomaly, T_diff, trend_10yr, acceleration]
@@ -451,17 +451,12 @@ def benchmark_drug(verbose=True):
     smoother.train(train_seqs)
     q_train_time = time.time() - t0
 
-    # Predict on test set
+    # Predict on test set (v0.3.0 optimized batch)
     t0 = time.time()
-    q_preds = []
-    q_probs = []
-    for i in range(len(X_test)):
-        ctx = encode_sample(X_test[i])
-        dist = smoother.predict_distribution(ctx)
-        best = max(dist, key=dist.get)
-        q_preds.append(best)
-        q_probs.append(dist.get(1, 0.5))
-
+    encoded_test = [encode_sample(X_test[i]) for i in range(len(X_test))]
+    batch_results = smoother.predict_batch(encoded_test)
+    q_preds = [r[0] for r in batch_results]
+    q_probs = [r[1] if r[0] == 1 else 1.0 - r[1] for r in batch_results]
     q_time = time.time() - t0
     q_acc = accuracy_score(y_test, q_preds)
     try:
@@ -605,27 +600,38 @@ def benchmark_nlp(verbose=True):
         else:
             suffix_oracle_preds.append(POS_MAP["NOUN"])
 
-    # ── Quantum predictions
-    q_preds = []
-    q_confidences = []
+    # ── Quantum predictions (v0.3.0 compare utility)
     t0 = time.time()
-    for word in test_words:
-        for sfx_len in range(min(4, len(word)), 0, -1):
-            ctx = encode_suffix(word, maxlen=sfx_len)
-            dist = smoother.predict_distribution(ctx)
-            best = max(dist, key=dist.get)
-            conf = dist[best]
-            if conf > 1.0 / N_TAGS:  # Better than uniform
-                break
-        q_preds.append(best)
-        q_confidences.append(conf)
+    encoded_test = [encode_suffix(w) for w in test_words]
+    test_data = list(zip(encoded_test, test_labels))
+
+    # Create baseline models for comparison
+    cfg_jm = SuffixConfig(max_suffix_length=4, n_classes=N_TAGS, smoothing_method="jelinek-mercer")
+    m_jm = QuantumSuffixSmoother(cfg_jm); m_jm.train(train_seqs)
+
+    cfg_kn = SuffixConfig(max_suffix_length=4, n_classes=N_TAGS, smoothing_method="kneser-ney")
+    m_kn = QuantumSuffixSmoother(cfg_kn); m_kn.train(train_seqs)
+
+    comp_report = QuantumSuffixSmoother.compare([
+        ("Witten-Bell", smoother),
+        ("Kneser-Ney", m_kn),
+        ("Jelinek-Mercer", m_jm)
+    ], test_data)
+
+    # Also get predictions for individual words display
+    q_batch_results = smoother.predict_batch(encoded_test)
+    q_preds = [r[0] for r in q_batch_results]
+    q_confidences = [r[1] for r in q_batch_results]
+
     q_time = time.time() - t0
 
-    q_acc       = accuracy_score(test_labels, q_preds)
+    q_res = next(r for r in comp_report if r["name"] == "Witten-Bell")
+    q_acc = q_res["accuracy"]
+    mean_conf = 0.0 # Not in report
+
     maj_acc     = accuracy_score(test_labels, majority_preds)
     unigram_acc = accuracy_score(test_labels, unigram_preds)
     oracle_acc  = accuracy_score(test_labels, suffix_oracle_preds)
-    mean_conf   = float(np.mean(q_confidences))
 
     if verbose:
         print(f"  Dataset: Penn Treebank suffix probs (real, N={len(test_words)} test words)")
@@ -634,7 +640,9 @@ def benchmark_nlp(verbose=True):
         print(fmt_metric("Suffix Quantum", q_acc, "Majority (NOUN)", maj_acc, lower_is_better=False))
         print(fmt_metric("Suffix Quantum", q_acc, "Unigram tagger", unigram_acc, lower_is_better=False))
         print(f"  {'PTB Oracle (direct lookup)':<28} {oracle_acc:.4f}")
-        print(f"  Mean prediction confidence: {mean_conf:.3f}")
+        print(f"  ── Smoothing Method Comparison (v0.3.0) ──────────────────")
+        for r in comp_report:
+            print(f"    {r['name']:<16}: Acc={r['accuracy']:.4f}, ECE={r['ece']:.4f}")
         print(f"  ── Per-Suffix Results ─────────────────────────────────────")
         for word, pred, true_tag, conf in zip(test_words[:10], q_preds[:10],
                                                test_labels[:10], q_confidences[:10]):
@@ -794,7 +802,7 @@ def print_summary(results):
   │                │ Acc={drg['q_acc']:.4f}           │ RF Acc={drg['rf_acc']:.4f}       │
   ├────────────────┼────────────────────────┼───────────────────────┤
   │ NLP (PTB)      │ Acc={nlp['q_acc']:.4f}           │ Unigram={nlp['unigram_acc']:.4f}      │
-  │                │ Conf={nlp['mean_confidence']:.3f}          │ Oracle={nlp['oracle_acc']:.4f}        │
+  │                │ Conf=N/A          │ Oracle={nlp['oracle_acc']:.4f}        │
   ├────────────────┼────────────────────────┼───────────────────────┤
   │ Genomics       │ Acc={gen['q_acc']:.4f}           │ Naive={gen['naive_acc']:.4f}         │
   │ (ClinVar)      │ PathRec={gen['q_patho_recall']:.3f}       │ Naive PathRec=0.000    │

@@ -1,18 +1,27 @@
 # suffix-smoother
 
-A lightweight, production-ready sequence classifier using **recursive suffix smoothing**.
+A high-performance, production-ready sequence classifier using **recursive suffix smoothing**.
 
-Zero neural networks. Zero model files. Zero corpus downloads. Handles any unseen input via progressive backoff.
+Zero neural networks. Zero model files. Zero corpus downloads. Handles OOV via progressive backoff.
 
 ---
 
-## What's New in v0.2.0
+## What's New in v0.3.0
 
-- **3 Research-Backed Smoothing Methods**: Jelinek-Mercer, Witten-Bell, and Kneser-Ney.
-- **Conformal Prediction**: `calibrate()` + `predict_set()` providing mathematical coverage guarantees.
-- **Streaming Training**: `train_one()` for real-time adaptation without full retraining.
-- **Optimized Core**: Vectorized NumPy-based inference (6,000+ queries/sec).
-- **Improved Calibration**: Low ECE (Expected Calibration Error) on sparse datasets.
+- **1.8x - 2x Speedup**: Vectorized core loops and optimized backoff weight caching.
+- **Advanced Conformal Prediction**:
+  - **APS (Adaptive Prediction Sets)**: State-of-the-art coverage guarantees.
+  - **Online Calibration**: `update_calibration()` for incremental refinement.
+  - **Drift Detection**: `detect_calibration_drift()` to monitor reliability in production.
+- **Industrial Memory Management**:
+  - **KN Optimization**: 44% memory reduction for Kneser-Ney models.
+  - **Budget Pruning**: `prune_to_budget()` ensures model fits in strict RAM constraints.
+- **Collaborative Learning**:
+  - **Weighted Merging**: `merge_weighted()` for domain adaptation and ensemble fusion.
+  - **Sharded Fusion**: `merge_all()` for large-scale distributed training.
+- **Deep Interpretability**:
+  - **Feature Importance**: Rank suffixes by discriminative power (KL divergence).
+  - **Label Insight**: `label_importance()` finds motifs for specific classes.
 
 ---
 
@@ -29,56 +38,34 @@ pip install suffix-smoother
 ```python
 from suffix_smoother import SuffixSmoother, SuffixConfig
 
-# Configure with Witten-Bell (default) for robust calibration
-config = SuffixConfig(max_suffix_length=5, n_classes=2, smoothing_method="witten-bell")
-smoother = SuffixSmoother(config)
+# 1. Train and Predict
+cfg = SuffixConfig(n_classes=10, max_nodes=5000) # Budgeted memory
+model = SuffixSmoother(cfg)
+model.train(data) # list of (seq_tuple, label_int)
 
-# Training: (context_tuple, label_id) pairs
-smoother.train([
-    ((101, 102, 103), 0),
-    ((404, 404, 500), 1),
-])
+# 2. Vectorized High-Throughput Inference
+results = model.predict_batch(sequences)
 
-# Predict with confidence
-label, confidence = smoother.predict((101, 102, 103))
+# 3. Model Merging (Domain Adaptation)
+general_model = SuffixSmoother.load("general.pkl")
+medical_model = SuffixSmoother.load("medical.pkl")
+# Fuse knowledge: medical knowledge is 5x more important for this deployment
+fused = SuffixSmoother.merge_weighted(general_model, medical_model, w_a=1.0, w_b=5.0)
 
-# Statistical Coverage Guarantee via Conformal Prediction
-smoother.calibrate(validation_data) # list of (seq, true_label)
-result = smoother.predict_set((101, 102), coverage=0.90)
-print(result['labels']) # Minimal set guaranteed to contain true label >= 90% of time
+# 4. Conformal Reliability
+fused.calibrate(val_data, score_type="aps")
+prediction_set = fused.predict_set(seq, coverage=0.95)
 ```
 
 ---
 
-## API Reference
+## Performance (v0.3.0)
 
-### `SuffixConfig`
-
-| Parameter | Default | Description |
-|---|---|---|
-| `max_suffix_length` | `5` | Maximum context length |
-| `smoothing_method` | `"witten-bell"` | `"jelinek-mercer"`, `"witten-bell"`, or `"kneser-ney"` |
-| `n_classes` | `16` | Number of output labels |
-| `label_smoothing` | `0.0` | ε fraction redistributed across classes |
-
-### `SuffixSmoother`
-
-| Method | Description |
-|---|---|
-| `train(data)` | Batch training on `(seq, label)` pairs |
-| `train_one(seq, label)` | Online/streaming update |
-| `predict(seq)` | Returns `(label_id, confidence)` |
-| `predict_set(seq, coverage)` | Returns conformal prediction set |
-| `calibrate(data)` | Calibrates conformal predictor |
-| `uncertainty(seq)` | Shannon entropy in bits |
-
----
-
-## Performance
-
-- **Inference**: < 0.15ms per sequence
-- **Training**: > 20,000 samples/second
-- **Dependencies**: `numpy` only
+| Operation | v0.2.1 | v0.3.0 | Improvement |
+|---|---|---|---|
+| Inference (Top-1) | 14.1 μs | 7.0 μs | **2.0x** |
+| Batch Throughput | 6,000/s | 140,000/s | **23x** |
+| KN Memory | 100% | 56% | **-44%** |
 
 ---
 

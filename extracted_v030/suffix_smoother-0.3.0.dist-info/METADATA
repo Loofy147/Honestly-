@@ -1,0 +1,70 @@
+Metadata-Version: 2.4
+Name: suffix-smoother
+Version: 0.3.0
+Summary: Suffix-based sequence classifier with Jelinek-Mercer, Witten-Bell, and Kneser-Ney smoothing, conformal prediction, model merging, and feature importance
+Author: loofy147
+License: MIT
+Project-URL: Homepage, https://github.com/loofy147/suffix-smoother
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.21
+
+# suffix-smoother 0.3.0
+
+Suffix-based sequence classifier using probabilistic smoothing.
+
+## Install
+```bash
+pip install suffix-smoother
+```
+
+## Quick Start
+```python
+from suffix_smoother import SuffixSmoother, SuffixConfig
+
+smoother = SuffixSmoother(SuffixConfig(max_suffix_length=5, n_classes=4))
+smoother.train([((101, 102, 103), 0), ((404, 500), 1)])
+label, confidence = smoother.predict((101, 102, 103))
+
+# Conformal prediction set (coverage guaranteed)
+smoother.calibrate(validation_data)
+result = smoother.predict_set(seq, coverage=0.90)
+
+# Model merging (distributed training)
+merged = SuffixSmoother.merge(model_a, model_b)
+
+# What did the model learn?
+for f in smoother.feature_importance(top_n=5):
+    print(f["suffix"], "→ class", f["top_label"], f["kl_divergence"])
+
+# Side-by-side benchmark
+results = SuffixSmoother.compare([("wb", s_wb), ("kn", s_kn)], test_data)
+```
+
+## Smoothing Methods
+
+| Method | Behavior | Best For |
+|--------|----------|----------|
+| `witten-bell` *(default)* | Adaptive λ — high evidence → high MLE weight | General use, zero tuning |
+| `kneser-ney` | Continuation probability at base | Sparse, diverse vocabularies |
+| `jelinek-mercer` | Fixed λ | Baselines, interpretable |
+
+## What's New in 0.3.0
+
+**Performance (vs 0.2.1):**
+- **1.5–1.9× faster inference** — cached `T` (n_unique_labels), cached WB λ, cached KN backoff, precomputed KN base distribution, eliminated per-query `max()` calls and array allocation
+- **44% less KN memory** — continuation tracking converted from `set[tuple]` → `int` after training. Sets are freed immediately after finalization.
+- **~4MB less RAM per 20K nodes** — `observed_labels: set` replaced by `_T: int` (plain integer, zero set overhead)
+
+**New API:**
+- `merge(a, b)` — combine two trained models additively (distributed training, domain adaptation)
+- `feature_importance(top_n)` — KL-ranked list of which suffixes are most discriminative
+- `predict_batch(sequences)` — vectorized inference, 1.25× faster than `predict_distribution()` loop
+- `compare(models, test_data)` — side-by-side benchmark across multiple models
+
+## Changelog
+- **0.3.0** — Performance overhaul, merge(), feature_importance(), predict_batch(), compare()
+- **0.2.1** — User release
+- **0.2.0** — Three smoothing methods, conformal prediction, label smoothing, streaming
+- **0.1.1** — Bug fixes: inference side-effect, bad label validation
+- **0.1.0** — Initial release

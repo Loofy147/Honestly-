@@ -84,7 +84,9 @@ class QuantumErrorCorrector:
 
         if quality > 0.95:
             self.successful_corrections += 1
-            self.smoother.train([(state_seq, code)])
+            # v0.3.0 Online Learning: update both counts and calibration
+            self.smoother.train_one(state_seq, code)
+            self.smoother.update_calibration(state_seq, code)
 
         return {
             "qec_code": code,
@@ -100,27 +102,32 @@ class QuantumErrorCorrector:
         }
 
     def viterbi_sequence(self, phi_sequence: list[np.ndarray]) -> list[int]:
+        """
+        Globally optimal code sequence via Viterbi decoding.
+        Optimized in v0.3.0 with batch prediction.
+        """
         T = len(phi_sequence)
         n_codes = self.cfg.n_classes
         V = np.full((n_codes, T), -np.inf)
         backtrack = np.zeros((n_codes, T), dtype=int)
 
-        phi0 = phi_sequence[0]
-        seq0 = self._discretize_state(phi0.real)
-        dist0 = self.smoother.predict_distribution(seq0)
-        for c in range(n_codes):
-            V[c, 0] = np.log(dist0.get(c, 1e-10) + 1e-10)
+        # 1. Batch discretize and predict emission distributions
+        seqs = [self._discretize_state(phi.real) for phi in phi_sequence]
+        dists = self.smoother.predict_distributions_batch(seqs)
 
+        # 2. Initialization
+        dist0 = dists[0]
+        for c in range(n_codes):
+            V[c, 0] = np.log(dist0[c] + 1e-12)
+
+        # 3. Recursion
         for t in range(1, T):
-            seq_t = self._discretize_state(phi_sequence[t].real)
-            dist_t = self.smoother.predict_distribution(seq_t)
+            dist_t = dists[t]
+            log_emit = np.log(dist_t + 1e-12)
             for c in range(n_codes):
-                p_emit = np.log(dist_t.get(c, 1e-10) + 1e-10)
-                scores = np.array([
-                    V[c_prev, t-1] - 0.1 * abs(c - c_prev) + p_emit
-                    for c_prev in range(n_codes)
-                ])
-                best_prev = int(np.argmax(scores))
+                # Transition cost: -0.1 * distance between codes
+                scores = V[:, t-1] - 0.1 * np.abs(np.arange(n_codes) - c) + log_emit[c]
+                best_prev = np.argmax(scores)
                 V[c, t] = scores[best_prev]
                 backtrack[c, t] = best_prev
 
@@ -131,6 +138,10 @@ class QuantumErrorCorrector:
             c = backtrack[c, t]
         path.reverse()
         return path
+
+    def prune_model(self, min_kl: float = 0.1) -> dict:
+        """Prune low-value nodes from the underlying suffix tree (v0.3.0)."""
+        return self.smoother.prune(min_kl=min_kl)
 
     def summary(self) -> dict:
         return {
